@@ -2010,3 +2010,120 @@ body.low-gfx .chat-panel {
   white-space: nowrap;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
 }
+
+/* Eat / Drink Food Button (appears when holding edible festival snack) */
+.eat-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  min-block-size: 52px;
+  border-radius: 999px;
+  border: 2px solid #fb923c;
+  background: linear-gradient(135deg, rgba(180, 83, 9, 0.92), rgba(234, 88, 12, 0.92));
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.84rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  box-shadow: 0 6px 20px rgba(234, 88, 12, 0.48);
+  transition: scale 120ms ease-out;
+}
+
+.eat-btn:active,
+.eat-btn.eating {
+  scale: 0.92;
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #0f172a;
+}
+
+.eat-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #fef08a;
+  color: #451a03;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+@media (max-width: 640px) {
+  .eat-btn {
+    width: 48px;
+    height: 48px;
+    min-block-size: 48px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1.25rem;
+  }
+  .eat-text {
+    display: none;
+  }
+  .eat-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-inline-size: 18px;
+    height: 18px;
+    font-size: 0.68rem;
+    border: 2px solid #0d1326;
+  }
+}
+
+/* In-App Browser (LINE / FB / IG) External Browser Gate */
+.inapp-gate {
+  z-index: 90;
+  background: rgba(5, 10, 26, 0.94);
+}
+
+.inapp-card {
+  width: min(440px, calc(100dvw - 28px));
+  padding: 24px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.inapp-card h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--gold);
+}
+
+.inapp-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.inapp-ext-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  border-radius: 12px;
+  font-weight: 800;
+}
+
+.inapp-skip-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 6px;
+}

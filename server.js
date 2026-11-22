@@ -148,6 +148,7 @@ const LANTERN_LIFETIME_MS = 90000;
 const MAX_RECENT_CHATS = 30;
 const VALID_KRATHONG_TYPES = new Set(['banana', 'lotus', 'bread']);
 const VALID_PROP_TYPES = new Set(['meatball', 'cotton_candy', 'drink', 'glowstick', 'balloon']);
+const EDIBLE_PROP_TYPES = new Set(['meatball', 'cotton_candy', 'drink']);
 const VALID_LANTERN_COLORS = new Set(['gold', 'pink', 'white']);
 const AUDIO_DIR = path.join(__dirname, 'public', 'audio');
 const FESTIVAL_AUDIO_DIR = path.join(__dirname, 'public', 'audio-festival');
@@ -375,6 +376,8 @@ io.on('connection', (socket) => {
       isRunning: false,
       heldKrathong: null,
       heldProp: null,
+      propBites: 3,
+      seatedChairId: null,
       isSpeaking: false
     };
 
@@ -435,6 +438,10 @@ io.on('connection', (socket) => {
     player.rotY = clampFinite(payload.rotY, -Math.PI * 4, Math.PI * 4, player.rotY);
     player.isMoving = Boolean(payload.isMoving);
     player.isRunning = Boolean(payload.isRunning);
+    if (player.isMoving && player.seatedChairId) {
+      player.seatedChairId = null;
+      socket.to(room.id).emit('player:sat', { id: socket.id, chairId: null });
+    }
 
     // Queue for next 10 Hz batched broadcast instead of immediate O(N^2) emit
     room.dirtyMoves.set(socket.id, {
@@ -469,11 +476,68 @@ io.on('connection', (socket) => {
 
     const nextProp = VALID_PROP_TYPES.has(payload?.type) ? payload.type : null;
     player.heldProp = nextProp;
+    player.propBites = nextProp && EDIBLE_PROP_TYPES.has(nextProp) ? 3 : 0;
 
     io.to(room.id).emit('player:propUpdated', {
       id: socket.id,
-      heldProp: nextProp
+      heldProp: nextProp,
+      propBites: player.propBites
     });
+  });
+
+  socket.on('player:eat', () => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player || !EDIBLE_PROP_TYPES.has(player.heldProp)) return;
+
+    const propType = player.heldProp;
+    const nextBites = Math.max(0, (player.propBites || 3) - 1);
+    player.propBites = nextBites;
+    if (nextBites <= 0) {
+      player.heldProp = null;
+    }
+
+    io.to(room.id).emit('player:ate', {
+      id: socket.id,
+      propType,
+      bitesLeft: nextBites
+    });
+  });
+
+  socket.on('player:sit', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+
+    const chairId = typeof payload?.chairId === 'string' && payload.chairId.startsWith('chair-')
+      ? payload.chairId.slice(0, 28)
+      : null;
+
+    if (chairId) {
+      for (const [otherId, other] of room.players) {
+        if (otherId !== socket.id && other.seatedChairId === chairId) {
+          if (typeof ack === 'function') ack({ ok: false, error: 'OCCUPIED' });
+          return;
+        }
+      }
+      player.seatedChairId = chairId;
+      player.x = clampFinite(payload?.x, -40, 0, player.x);
+      player.z = clampFinite(payload?.z, -40, -15, player.z);
+      player.rotY = clampFinite(payload?.rotY, -Math.PI * 4, Math.PI * 4, Math.PI);
+      player.isMoving = false;
+      player.isRunning = false;
+    } else {
+      player.seatedChairId = null;
+    }
+
+    io.to(room.id).emit('player:sat', {
+      id: socket.id,
+      chairId: player.seatedChairId,
+      x: player.x,
+      z: player.z,
+      rotY: player.rotY
+    });
+    if (typeof ack === 'function') ack({ ok: true, chairId: player.seatedChairId });
   });
 
   socket.on('krathong:float', (payload, ack) => {

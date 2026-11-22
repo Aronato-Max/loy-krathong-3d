@@ -31,6 +31,8 @@ import {
 } from './photo-booth.js';
 import {
   buildConcertChairs,
+  updateConcertAudience,
+  findNearestEmptyChair,
   drawConcertChairsMinimap
 } from './concert-chairs.js';
 import {
@@ -254,8 +256,17 @@ const dom = {
   joystickKnob: document.getElementById('joystick-knob'),
   hudBottomRight: document.getElementById('hud-bottom-right'),
   btnSprint: document.getElementById('btn-sprint'),
+  btnEat: document.getElementById('btn-eat'),
+  eatIcon: document.getElementById('eat-icon'),
+  eatText: document.getElementById('eat-text'),
+  eatBadge: document.getElementById('eat-badge'),
   btnWave: document.getElementById('btn-wave'),
   btnPtt: document.getElementById('btn-ptt'),
+  inappGate: document.getElementById('inapp-browser-gate'),
+  inappGateDesc: document.getElementById('inapp-gate-desc'),
+  btnOpenExternal: document.getElementById('btn-open-external'),
+  btnCopyLink: document.getElementById('btn-copy-link'),
+  btnContinueInapp: document.getElementById('btn-continue-inapp'),
 
   btnChatFab: document.getElementById('btn-chat-fab'),
   chatUnreadDot: document.getElementById('chat-unread-dot'),
@@ -319,6 +330,8 @@ const state = {
   },
   heldKrathong: null,
   heldProp: null,
+  propBites: 0,
+  seatedChairId: null,
   activeZone: null,
   isSpeaking: false,
   voiceLockedOn: false,
@@ -371,6 +384,7 @@ let lanternPlazaState = null;
 let frontRoadState = null;
 let photoBoothState = null;
 let vendorMarketState = null;
+let concertChairsState = null;
 const lambertMatCache = new WeakMap();
 
 function toFastLambertMaterial(stdMat) {
@@ -451,28 +465,31 @@ function applyPerfLodMode(low) {
 }
 
 function updateMobileZoneCulling() {
-  if (!state.lowGraphics) return;
   const camZ = camera.position.z;
+  const low = state.lowGraphics;
 
-  // Hide 530-draw-call concert dancers when >46m away (stage & screen remain visible!)
-  const showDancers = camera.position.distanceTo(perfLodRefs.concertPos) <= 46;
+  // Smart distance culling in BOTH Normal & Low Graphics modes (prevents 530+ off-screen draw calls!)
+  const dancerCullDist = low ? 42 : 62;
+  const showDancers = camera.position.distanceTo(perfLodRefs.concertPos) <= dancerCullDist;
   for (let i = 0; i < perfLodRefs.concertAnimNodes.length; i++) {
     perfLodRefs.concertAnimNodes[i].visible = showDancers;
   }
 
   if (perfLodRefs.krathongTablesRoot) {
     perfLodRefs.krathongTablesRoot.visible =
-      camera.position.distanceTo(perfLodRefs.krathongPos) <= 48;
+      camera.position.distanceTo(perfLodRefs.krathongPos) <= (low ? 46 : 72);
   }
   if (perfLodRefs.parkedMotoGroup) {
-    perfLodRefs.parkedMotoGroup.visible = camZ > 15;
+    perfLodRefs.parkedMotoGroup.visible = camZ > (low ? 15 : 2);
   }
   if (frontRoadState) {
-    frontRoadState.root.visible = camZ > 20;
+    frontRoadState.root.visible = camZ > (low ? 20 : 8);
   }
-  for (let i = 0; i < perfLodRefs.cullableBuildings.length; i++) {
-    const b = perfLodRefs.cullableBuildings[i];
-    b.root.visible = camera.position.distanceTo(b.pos) <= b.maxDist;
+  if (low) {
+    for (let i = 0; i < perfLodRefs.cullableBuildings.length; i++) {
+      const b = perfLodRefs.cullableBuildings[i];
+      b.root.visible = camera.position.distanceTo(b.pos) <= b.maxDist;
+    }
   }
 }
 
@@ -520,12 +537,12 @@ function applyGraphicsMode(low) {
 
   // Mobile turbo mode: lower fill-rate + NoToneMapping + shorter far frustum + fast Lambert shaders + no blur passes
   renderer.setPixelRatio(
-    state.lowGraphics ? 0.72 : Math.min(window.devicePixelRatio || 1, 1.5)
+    state.lowGraphics ? 0.76 : Math.min(window.devicePixelRatio || 1, 1.25)
   );
   renderer.toneMapping = state.lowGraphics ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = !state.lowGraphics;
   if (!state.lowGraphics) {
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.shadowMap.needsUpdate = true;
   }
 
@@ -1978,8 +1995,62 @@ function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = fals
 
       bone.updateMatrixWorld(true);
       const invBone = new THREE.Matrix4().copy(bone.matrixWorld).invert();
-      const boneBuckets = new Map();
+
+      // 1) Bake all untextured, opaque, non-emissive flat-color meshes inside this animated bone into 1 vertex-colored draw call!
+      const flatColorMeshes = [];
+      const otherMeshes = [];
       for (const m of directMeshes) {
+        const mat = m.material;
+        const em = mat.emissive;
+        const hasEmissive = em && (em.r > 0.08 || em.g > 0.08 || em.b > 0.08);
+        if (!mat.map && !mat.emissiveMap && !mat.transparent && !hasEmissive && !mat.vertexColors) {
+          flatColorMeshes.push(m);
+        } else {
+          otherMeshes.push(m);
+        }
+      }
+      if (flatColorMeshes.length >= 2) {
+        const bakedGeos = [];
+        for (const m of flatColorMeshes) {
+          const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+          normalizeMergedGeometryAttributes(geo, false);
+          relMat.multiplyMatrices(invBone, m.matrixWorld);
+          geo.applyMatrix4(relMat);
+          const count = geo.attributes.position.count;
+          const col = m.material.color || new THREE.Color(0xffffff);
+          const colArr = new Float32Array(count * 3);
+          for (let ci = 0; ci < count; ci++) {
+            colArr[ci * 3] = col.r;
+            colArr[ci * 3 + 1] = col.g;
+            colArr[ci * 3 + 2] = col.b;
+          }
+          geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+          bakedGeos.push(geo);
+        }
+        const bakedMerged = mergeGeometries(bakedGeos, false);
+        bakedGeos.forEach((g) => g.dispose());
+        if (bakedMerged) {
+          for (const m of flatColorMeshes) {
+            if (m.parent) m.parent.remove(m);
+            m.geometry.dispose();
+          }
+          const vcMat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            vertexColors: true,
+            roughness: 0.72,
+            metalness: 0.05
+          });
+          const mergedMesh = new THREE.Mesh(bakedMerged, vcMat);
+          mergedMesh.castShadow = castShadow;
+          mergedMesh.receiveShadow = true;
+          bone.add(mergedMesh);
+        }
+      } else {
+        otherMeshes.push(...flatColorMeshes);
+      }
+
+      const boneBuckets = new Map();
+      for (const m of otherMeshes) {
         const sig = getMaterialSignature(m.material);
         if (!canonicalMat.has(sig)) canonicalMat.set(sig, m.material);
         const mat = canonicalMat.get(sig);
@@ -2575,6 +2646,8 @@ function buildFallbackAvatarMesh() {
     leftHandSocket,
     headY: 1.5,
     triggerWave() {},
+    triggerEat() {},
+    setSeated() {},
     update() {}
   };
 }
@@ -2607,15 +2680,21 @@ function buildAvatar(rawConfig = {}) {
   if (Number.isFinite(box.min.y) && Math.abs(box.min.y) > 0.005) {
     model.position.y -= box.min.y;
   }
+  const baseModelY = model.position.y;
   const headY = Number.isFinite(box.max.y) ? Math.max(0.85, box.max.y - (box.min.y || 0)) : 1.35;
 
-  // Attach right-hand & left-hand sockets for Krathong / Vendor Props + grab bones for waving
+  // Attach right-hand & left-hand sockets for Krathong / Vendor Props + grab bones for waving/eating/sitting
   const handSocket = new THREE.Group();
   const leftHandSocket = new THREE.Group();
   const armR = model.getObjectByName(`${spec.suffix}_ArmR`);
   const forearmR = model.getObjectByName(`${spec.suffix}_ForearmR`);
+  const armL = model.getObjectByName(`${spec.suffix}_ArmL`);
   const forearmL = model.getObjectByName(`${spec.suffix}_ForearmL`);
   const headBone = model.getObjectByName(`${spec.suffix}_Head`);
+  const legL = model.getObjectByName(`${spec.suffix}_LegL`);
+  const shinL = model.getObjectByName(`${spec.suffix}_ShinL`);
+  const legR = model.getObjectByName(`${spec.suffix}_LegR`);
+  const shinR = model.getObjectByName(`${spec.suffix}_ShinR`);
   if (forearmR) {
     handSocket.position.set(0, -0.2, 0.16);
     forearmR.add(handSocket);
@@ -2631,7 +2710,7 @@ function buildAvatar(rawConfig = {}) {
     root.add(leftHandSocket);
   }
 
-  // Bind Idle & Walk AnimationClips (right-arm wave is layered cleanly on top so Idle/Walk never drag the arm down)
+  // Bind Idle & Walk AnimationClips (wave, eat & sit are layered cleanly on top)
   const mixer = new THREE.AnimationMixer(model);
   const idleClip = THREE.AnimationClip.findByName(avatarBank.animations, `Idle_${spec.suffix}`);
   const walkClip = THREE.AnimationClip.findByName(avatarBank.animations, `Walk_${spec.suffix}`);
@@ -2644,21 +2723,36 @@ function buildAvatar(rawConfig = {}) {
   }
 
   let currentLocomotion = 'idle';
+  let isSeatedPose = false;
+  let seatBlend = 0;
   const WAVE_DURATION = 1.85;
   let waveElapsed = -1;
-  const waveArmEuler = new THREE.Euler(0, 0, 0, 'XYZ');
-  const waveArmQuat = new THREE.Quaternion();
-  const waveForearmEuler = new THREE.Euler(0, 0, 0, 'XYZ');
-  const waveForearmQuat = new THREE.Quaternion();
-  const waveHeadQuat = new THREE.Quaternion();
+  const EAT_DURATION = 1.35;
+  let eatElapsed = -1;
+  let eatUseLeft = false;
+
+  const tmpEuler = new THREE.Euler(0, 0, 0, 'XYZ');
+  const tmpQuat = new THREE.Quaternion();
   const zAxis = new THREE.Vector3(0, 0, 1);
+  const xAxis = new THREE.Vector3(1, 0, 0);
 
   function triggerWave() {
     waveElapsed = 0;
+    eatElapsed = -1;
+  }
+
+  function triggerEat(useLeftHand = false) {
+    eatElapsed = 0;
+    eatUseLeft = Boolean(useLeftHand);
+    waveElapsed = -1;
+  }
+
+  function setSeated(seated) {
+    isSeatedPose = Boolean(seated);
   }
 
   function update(dt, isMoving = false, isRunning = false) {
-    const wantLocomotion = isMoving && walkAction ? 'walk' : 'idle';
+    const wantLocomotion = !isSeatedPose && isMoving && walkAction ? 'walk' : 'idle';
     if (wantLocomotion !== currentLocomotion) {
       const fromAct = currentLocomotion === 'walk' ? walkAction : idleAction;
       const toAct = wantLocomotion === 'walk' ? walkAction : idleAction;
@@ -2676,6 +2770,76 @@ function buildAvatar(rawConfig = {}) {
     }
 
     mixer.update(dt);
+
+    // Smooth seated posture blend (bends thighs forward & shins down, lowers hips onto white plastic chair!)
+    const targetSeat = isSeatedPose ? 1 : 0;
+    if (Math.abs(seatBlend - targetSeat) > 0.005) {
+      seatBlend += (targetSeat - seatBlend) * Math.min(1, dt * 12);
+    } else {
+      seatBlend = targetSeat;
+    }
+    if (seatBlend > 0.005) {
+      model.position.y = baseModelY - seatBlend * Math.min(0.24, headY * 0.14);
+      if (legL) {
+        tmpEuler.set(-1.38 * seatBlend, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        legL.quaternion.slerp(tmpQuat, seatBlend);
+      }
+      if (legR) {
+        tmpEuler.set(-1.38 * seatBlend, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        legR.quaternion.slerp(tmpQuat, seatBlend);
+      }
+      if (shinL) {
+        tmpEuler.set(1.38 * seatBlend, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        shinL.quaternion.slerp(tmpQuat, seatBlend);
+      }
+      if (shinR) {
+        tmpEuler.set(1.38 * seatBlend, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        shinR.quaternion.slerp(tmpQuat, seatBlend);
+      }
+    } else {
+      model.position.y = baseModelY;
+    }
+
+    // Layered eating / drinking override: raises holding hand toward mouth + cheerful chew/sip head nod
+    if (eatElapsed >= 0) {
+      eatElapsed += dt;
+      if (eatElapsed >= EAT_DURATION) {
+        eatElapsed = -1;
+      } else {
+        const t = eatElapsed;
+        let lift = 1;
+        if (t < 0.25) {
+          const u = t / 0.25;
+          lift = 1 - Math.pow(1 - u, 3);
+        } else if (t > 1.05) {
+          const u = (t - 1.05) / (EAT_DURATION - 1.05);
+          lift = 1 - u * u * (3 - 2 * u);
+        }
+        const chew = Math.sin(t * 16) * 0.14 * lift;
+        const targetArm = eatUseLeft ? armL : armR;
+        const targetForearm = eatUseLeft ? forearmL : forearmR;
+        const sideSign = eatUseLeft ? -1 : 1;
+
+        if (targetArm) {
+          tmpEuler.set(-1.45 * lift + chew * 0.4, 0.28 * sideSign * lift, -0.32 * sideSign * lift, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          targetArm.quaternion.slerp(tmpQuat, Math.min(1, lift * 1.15));
+        }
+        if (targetForearm) {
+          tmpEuler.set(-0.92 * lift + chew * 0.5, 0.2 * sideSign * lift, 0.38 * sideSign * lift, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          targetForearm.quaternion.slerp(tmpQuat, Math.min(1, lift * 1.15));
+        }
+        if (headBone) {
+          tmpQuat.setFromAxisAngle(xAxis, 0.14 * lift + Math.sin(t * 15) * 0.1 * lift);
+          headBone.quaternion.multiply(tmpQuat);
+        }
+      }
+    }
 
     // Layered right-arm wave override: lifts arm outward & high above head, waves forearm 3x, lowers smoothly
     if (waveElapsed >= 0) {
@@ -2699,19 +2863,18 @@ function buildAvatar(rawConfig = {}) {
         const forearmOsc = (0.14 + Math.sin(wavePhase * 11.5 - 0.55) * 0.44) * lift;
 
         if (armR) {
-          // Sweep outward (-Z up to -150deg) + tilt slightly forward (+X) so hand raises clearly in front
-          waveArmEuler.set(0.28 * lift, 0, -2.62 * lift + armOsc, 'XYZ');
-          waveArmQuat.setFromEuler(waveArmEuler);
-          armR.quaternion.slerp(waveArmQuat, blend);
+          tmpEuler.set(0.28 * lift, 0, -2.62 * lift + armOsc, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          armR.quaternion.slerp(tmpQuat, blend);
         }
         if (forearmR) {
-          waveForearmEuler.set(0.12 * lift, 0, forearmOsc, 'XYZ');
-          waveForearmQuat.setFromEuler(waveForearmEuler);
-          forearmR.quaternion.slerp(waveForearmQuat, blend);
+          tmpEuler.set(0.12 * lift, 0, forearmOsc, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          forearmR.quaternion.slerp(tmpQuat, blend);
         }
         if (headBone) {
-          waveHeadQuat.setFromAxisAngle(zAxis, Math.sin(wavePhase * 5.75) * 0.08 * lift);
-          headBone.quaternion.multiply(waveHeadQuat);
+          tmpQuat.setFromAxisAngle(zAxis, Math.sin(wavePhase * 5.75) * 0.08 * lift);
+          headBone.quaternion.multiply(tmpQuat);
         }
       }
     }
@@ -2723,6 +2886,8 @@ function buildAvatar(rawConfig = {}) {
     leftHandSocket,
     headY,
     triggerWave,
+    triggerEat,
+    setSeated,
     update
   };
 }
@@ -2883,16 +3048,31 @@ dom.previewCanvas.addEventListener('pointercancel', () => { previewDragging = fa
 // 8. MULTIPLAYER PLAYER MANAGEMENT & 3D LABELS
 // ============================================================================
 
-function updatePlayerHeldProp(playerObj, propType) {
+function syncEatButtonUI() {
+  if (!dom.btnEat) return;
+  const meta = state.heldProp ? VENDOR_PROP_META[state.heldProp] : null;
+  const canEat = Boolean(meta && meta.edible && state.propBites > 0);
+  dom.btnEat.classList.toggle('hidden', !canEat);
+  if (canEat) {
+    if (dom.eatIcon) dom.eatIcon.textContent = meta.verbEmoji || '😋';
+    if (dom.eatText) dom.eatText.textContent = `${meta.verb || 'กิน'} (F)`;
+    if (dom.eatBadge) dom.eatBadge.textContent = String(state.propBites);
+  }
+}
+
+function updatePlayerHeldProp(playerObj, propType, propBites = 3) {
   if (playerObj.heldPropMesh) {
     if (playerObj.heldPropMesh.parent) {
       playerObj.heldPropMesh.parent.remove(playerObj.heldPropMesh);
     }
     playerObj.heldPropMesh = null;
   }
-  playerObj.heldProp = propType || null;
-  if (propType && VENDOR_PROP_META[propType]) {
-    const mesh = createHandheldPropMesh(propType);
+  const meta = propType ? VENDOR_PROP_META[propType] : null;
+  playerObj.heldProp = meta ? propType : null;
+  playerObj.propBites = meta && meta.edible ? Math.max(0, Math.min(3, Number(propBites ?? 3))) : 0;
+
+  if (playerObj.heldProp && (!meta.edible || playerObj.propBites > 0)) {
+    const mesh = createHandheldPropMesh(playerObj.heldProp, playerObj.propBites || 3);
     // Hold in right hand (waves high during H!) unless right hand is busy holding a krathong -> left hand!
     const targetSocket = playerObj.heldKrathong
       ? playerObj.leftHandSocket || playerObj.handSocket
@@ -2902,6 +3082,8 @@ function updatePlayerHeldProp(playerObj, propType) {
   }
   if (playerObj.id === state.selfId) {
     state.heldProp = playerObj.heldProp;
+    state.propBites = playerObj.propBites;
+    syncEatButtonUI();
   }
 }
 
@@ -2918,7 +3100,7 @@ function updatePlayerHeldKrathong(playerObj, krathongType) {
   }
   // If player is also holding a vendor snack/prop, seamlessly shift it between right & left hand
   if (playerObj.heldProp) {
-    updatePlayerHeldProp(playerObj, playerObj.heldProp);
+    updatePlayerHeldProp(playerObj, playerObj.heldProp, playerObj.propBites || 3);
   }
   if (playerObj.id === state.selfId) {
     state.heldKrathong = playerObj.heldKrathong;
@@ -2971,6 +3153,8 @@ function spawnOrUpdatePlayer(data) {
     leftHandSocket: built.leftHandSocket || built.handSocket,
     headY: built.headY,
     triggerWave: built.triggerWave,
+    triggerEat: built.triggerEat,
+    setSeated: built.setSeated,
     updateAnim: built.update,
     currentPos: new THREE.Vector3(data.x || 0, data.y || 0, data.z || 59),
     targetPos: new THREE.Vector3(data.x || 0, data.y || 0, data.z || 59),
@@ -2982,6 +3166,8 @@ function spawnOrUpdatePlayer(data) {
     heldMesh: null,
     heldProp: null,
     heldPropMesh: null,
+    propBites: 0,
+    seatedChairId: null,
     isSpeaking: Boolean(data.isSpeaking),
     labelEls,
     chatExpireAt: 0
@@ -2991,7 +3177,11 @@ function spawnOrUpdatePlayer(data) {
     updatePlayerHeldKrathong(pObj, data.heldKrathong);
   }
   if (data.heldProp) {
-    updatePlayerHeldProp(pObj, data.heldProp);
+    updatePlayerHeldProp(pObj, data.heldProp, data.propBites ?? 3);
+  }
+  if (data.seatedChairId) {
+    pObj.seatedChairId = data.seatedChairId;
+    if (pObj.setSeated) pObj.setSeated(true);
   }
   if (pObj.isSpeaking) {
     pObj.labelEls.speaking.classList.remove('hidden');
@@ -4190,7 +4380,49 @@ function connectSocketAndJoin() {
 
   socket.on('player:propUpdated', (d) => {
     const p = state.players.get(d.id);
-    if (p) updatePlayerHeldProp(p, d.heldProp);
+    if (p) updatePlayerHeldProp(p, d.heldProp, d.propBites ?? 3);
+  });
+
+  socket.on('player:ate', (d) => {
+    const p = state.players.get(d.id);
+    if (!p) return;
+    if (d.id !== state.selfId) {
+      if (p.triggerEat) p.triggerEat(Boolean(p.heldKrathong));
+      const meta = VENDOR_PROP_META[d.propType];
+      if (meta?.lines) {
+        const lineIdx = Math.min(meta.lines.length - 1, Math.max(0, 2 - (d.bitesLeft || 0)));
+        showPlayerChatBubble(d.id, meta.lines[lineIdx]);
+      }
+      if (d.bitesLeft > 0) {
+        updatePlayerHeldProp(p, d.propType, d.bitesLeft);
+      } else {
+        setTimeout(() => {
+          if (p.heldProp === d.propType && p.propBites <= 1) {
+            updatePlayerHeldProp(p, null, 0);
+          }
+        }, 1050);
+      }
+    }
+  });
+
+  socket.on('player:sat', (d) => {
+    const p = state.players.get(d.id);
+    if (!p) return;
+    p.seatedChairId = d.chairId || null;
+    if (p.setSeated) p.setSeated(Boolean(p.seatedChairId));
+    if (p.seatedChairId && typeof d.x === 'number' && typeof d.z === 'number') {
+      p.targetPos.set(d.x, 0, d.z);
+      if (typeof d.rotY === 'number') p.targetRotY = d.rotY;
+      p.isMoving = false;
+      p.isRunning = false;
+      if (d.id === state.selfId) {
+        p.currentPos.set(d.x, 0, d.z);
+        p.currentRotY = p.targetRotY;
+        state.seatedChairId = p.seatedChairId;
+      }
+    } else if (d.id === state.selfId) {
+      state.seatedChairId = null;
+    }
   });
 
   socket.on('krathong:floated', (k) => {
@@ -4494,12 +4726,21 @@ function openZoneDialog(zone) {
     const meta = VENDOR_PROP_META[propType];
     const self = state.players.get(state.selfId);
     const nextProp = state.heldProp === propType ? null : propType;
-    if (self) updatePlayerHeldProp(self, nextProp);
+    if (self) updatePlayerHeldProp(self, nextProp, 3);
     if (socket) socket.emit('player:prop', { type: nextProp });
     if (nextProp && meta) {
-      showToast(`${meta.emoji} รับ${meta.name}จากร้าน "${zone.vendor.tpl.signTitle}" แล้ว! กด H โบกโชว์ได้เลย`);
+      const hint = meta.edible
+        ? `กด F หรือแตะปุ่ม ${meta.verbEmoji} เพื่อ${meta.verb}ได้เลย!`
+        : 'กด H โบกโชว์หน้าเวทีได้เลย!';
+      showToast(`${meta.emoji} รับ${meta.name}จากร้าน "${zone.vendor.tpl.signTitle}" แล้ว! ${hint}`);
     } else if (meta) {
       showToast(`วาง${meta.name}เรียบร้อยแล้ว`);
+    }
+  } else if (zone.id === 'concert-chair') {
+    if (state.seatedChairId) {
+      standUpFromChair();
+    } else if (zone.chair) {
+      sitOnChair(zone.chair);
     }
   } else if (zone.id === 'lantern-plaza') {
     dom.dialogReleaseLantern.showModal();
@@ -5014,6 +5255,7 @@ window.addEventListener('pointerdown', handleGlobalAudioGesture, { passive: true
 window.addEventListener('touchend', handleGlobalAudioGesture, { passive: true });
 
 dom.btnGfxToggle.addEventListener('click', () => {
+  autoPerfAdjusted = true;
   applyGraphicsMode(!state.lowGraphics);
 });
 
@@ -5063,6 +5305,192 @@ function triggerSelfWave() {
 }
 
 dom.btnWave.addEventListener('click', triggerSelfWave);
+
+// Eat / Drink Handheld Food (3 bites -> finishes cleanly, real-time synced!)
+let lastEatAt = 0;
+function playEatSound(propType) {
+  const ctx = audioEngine.ctx;
+  if (!ctx || ctx.state !== 'running') return;
+  try {
+    const now = ctx.currentTime;
+    if (propType === 'drink') {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(340, now);
+      osc.frequency.exponentialRampToValueAtTime(680, now + 0.16);
+      g.gain.setValueAtTime(0.14, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    } else {
+      // Two cute soft crunch taps
+      [0, 0.14].forEach((delay) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(260 + delay * 400, now + delay);
+        osc.frequency.exponentialRampToValueAtTime(95, now + delay + 0.08);
+        g.gain.setValueAtTime(0.16, now + delay);
+        g.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.09);
+        osc.connect(g).connect(ctx.destination);
+        osc.start(now + delay);
+        osc.stop(now + delay + 0.1);
+      });
+    }
+  } catch {}
+}
+
+function triggerSelfEat() {
+  if (!state.joined || !state.heldProp) return;
+  const meta = VENDOR_PROP_META[state.heldProp];
+  if (!meta || !meta.edible || state.propBites <= 0) return;
+
+  const now = performance.now();
+  if (now - lastEatAt < 1100) return;
+  lastEatAt = now;
+
+  const self = state.players.get(state.selfId);
+  const propType = state.heldProp;
+  const nextBites = Math.max(0, state.propBites - 1);
+
+  if (self && self.triggerEat) {
+    self.triggerEat(Boolean(self.heldKrathong));
+  }
+  playEatSound(propType);
+  if (dom.btnEat) {
+    dom.btnEat.classList.add('eating');
+    setTimeout(() => dom.btnEat.classList.remove('eating'), 420);
+  }
+
+  const lineIdx = Math.min((meta.lines?.length || 1) - 1, Math.max(0, 2 - nextBites));
+  const msg = meta.lines ? meta.lines[lineIdx] : `${meta.emoji} อร่อยมาก!`;
+  if (self) showPlayerChatBubble(state.selfId, msg);
+
+  if (socket) socket.emit('player:eat');
+
+  if (nextBites > 0) {
+    if (self) updatePlayerHeldProp(self, propType, nextBites);
+    showToast(`${msg} (เหลืออีก ${nextBites} คำ)`);
+  } else {
+    state.propBites = 0;
+    syncEatButtonUI();
+    showToast(`${msg} แวะชิมร้านอื่นต่อได้เลย!`);
+    setTimeout(() => {
+      const curSelf = state.players.get(state.selfId);
+      if (curSelf && curSelf.heldProp === propType && state.propBites === 0) {
+        updatePlayerHeldProp(curSelf, null, 0);
+      }
+    }, 1050);
+  }
+}
+
+if (dom.btnEat) {
+  dom.btnEat.addEventListener('click', triggerSelfEat);
+}
+
+// Sit / Stand on Empty White Concert Chairs (Real-time synced!)
+function sitOnChair(chair) {
+  if (!chair || !state.joined) return;
+  const self = state.players.get(state.selfId);
+  if (!self) return;
+
+  const seatX = chair.x;
+  const seatZ = chair.z - 0.04;
+  const seatRotY = Math.PI + (chair.rotY || 0); // Face North (-Z) directly toward the Concert Stage!
+
+  state.seatedChairId = chair.id;
+  self.seatedChairId = chair.id;
+  self.currentPos.set(seatX, 0, seatZ);
+  self.currentRotY = seatRotY;
+  self.isMoving = false;
+  self.isRunning = false;
+  self.group.position.copy(self.currentPos);
+  self.group.rotation.y = self.currentRotY;
+  if (self.setSeated) self.setSeated(true);
+
+  if (socket) {
+    socket.emit('player:sit', { chairId: chair.id, x: seatX, z: seatZ, rotY: seatRotY }, (ack) => {
+      if (ack && ack.ok === false) {
+        standUpFromChair();
+        showToast('🪑 เก้าอี้ตัวนี้มีเพื่อนกำลังนั่งอยู่แล้ว ลองเลือกตัวข้าง ๆ นะครับ');
+      }
+    });
+  }
+  showToast('🪑 นั่งดูคอนเสิร์ตแล้ว! กด F กินของกิน, กด H โบกแท่งไฟ หรือขยับเดินเพื่อลุก');
+}
+
+function standUpFromChair() {
+  if (!state.seatedChairId) return;
+  const self = state.players.get(state.selfId);
+  const oldChair = concertChairsState?.chairById?.get(state.seatedChairId);
+  state.seatedChairId = null;
+
+  if (self) {
+    self.seatedChairId = null;
+    if (self.setSeated) self.setSeated(false);
+    // Step smoothly forward into the walkable row alley just in front of the chair
+    if (oldChair) {
+      self.currentPos.set(oldChair.x, 0, oldChair.z - 0.72);
+      resolvePlayerCollisions(self.currentPos, 0.48);
+      self.group.position.copy(self.currentPos);
+    }
+  }
+  if (socket) {
+    socket.emit('player:sit', { chairId: null });
+  }
+}
+
+// In-App Browser (LINE / Facebook / Instagram) External Browser Helper Gate
+function initInAppBrowserGate() {
+  if (!dom.inappGate) return;
+  const ua = navigator.userAgent || '';
+  const isLine = /\bLine\//i.test(ua);
+  const isInApp = isLine || /FBAN|FBAV|Instagram|MicroMessenger/i.test(ua);
+  if (!isInApp) return;
+
+  const isAndroid = /Android/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const cleanUrl = new URL(window.location.href);
+  cleanUrl.searchParams.delete('openExternalBrowser');
+  const shareUrl = cleanUrl.toString();
+
+  dom.inappGate.classList.remove('hidden');
+
+  if (isAndroid && dom.btnOpenExternal) {
+    const intentUrl = `intent://${cleanUrl.host}${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}#Intent;scheme=${cleanUrl.protocol.replace(':', '')};package=com.android.chrome;end`;
+    dom.btnOpenExternal.href = intentUrl;
+    dom.btnOpenExternal.textContent = '🌐 เปิดด้วย Google Chrome (ลื่นกว่า & ใช้ไมค์ได้)';
+  } else if (isIOS && dom.btnOpenExternal) {
+    const extUrl = new URL(shareUrl);
+    extUrl.searchParams.set('openExternalBrowser', '1');
+    dom.btnOpenExternal.href = extUrl.toString();
+    dom.btnOpenExternal.textContent = '🌐 เปิดด้วย Safari (หรือแตะ ⋯ มุมขวาล่าง)';
+    if (dom.inappGateDesc) {
+      dom.inappGateDesc.innerHTML =
+        'หากยังไม่เด้งออกนอก LINE อัตโนมัติ ให้กดปุ่ม <b>⋯</b> หรือไอคอน <b>🧭</b> มุมขวาล่างแล้วเลือก <b>"เปิดด้วย Safari"</b> เพื่อความลื่นไหลและใช้ไมค์ได้ครับ';
+    }
+  } else if (dom.btnOpenExternal) {
+    dom.btnOpenExternal.href = shareUrl;
+  }
+
+  if (dom.btnCopyLink) {
+    dom.btnCopyLink.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        dom.btnCopyLink.textContent = '✅ คัดลอกลิงก์แล้ว! นำไปวางใน Safari / Chrome ได้เลย';
+      } catch {
+        window.prompt('คัดลอกลิงก์นี้ไปเปิดใน Chrome หรือ Safari:', shareUrl);
+      }
+    });
+  }
+  if (dom.btnContinueInapp) {
+    dom.btnContinueInapp.addEventListener('click', () => {
+      dom.inappGate.classList.add('hidden');
+    });
+  }
+}
 
 // Smart Dual-Mode Voice Button (Mobile & PC):
 // - Quick Tap (<350ms): Toggles hands-free mic ON/OFF (ideal while walking with mobile joystick!)
@@ -5184,6 +5612,9 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyE' && state.activeZone && !state.photoMode) {
     e.preventDefault();
     openZoneDialog(state.activeZone);
+  }
+  if (code === 'KeyF' && !e.repeat && !state.photoMode) {
+    triggerSelfEat();
   }
   if (code === 'KeyH' && !e.repeat) {
     triggerSelfWave();
@@ -5373,6 +5804,11 @@ function updateLocalPlayer(dt) {
     isMoving &&
     (state.keys.has('ShiftLeft') || state.keys.has('ShiftRight') || state.sprintTouch);
 
+  // Moving automatically stands the player up from a concert chair!
+  if (isMoving && state.seatedChairId) {
+    standUpFromChair();
+  }
+
   if (isMoving) {
     const nx = moveX / Math.max(1, inputLen);
     const nz = moveZ / Math.max(1, inputLen);
@@ -5446,6 +5882,26 @@ function updateLocalPlayer(dt) {
     if (d <= z.radius && d < bestDist) {
       bestDist = d;
       foundZone = z;
+    }
+  }
+  if (!foundZone && state.seatedChairId) {
+    foundZone = {
+      id: 'concert-chair',
+      label: 'ลุกจากเก้าอี้ดูคอนเสิร์ต 🪑'
+    };
+  }
+  if (!foundZone && concertChairsState) {
+    const occupied = new Set();
+    for (const [, pl] of state.players) {
+      if (pl.seatedChairId) occupied.add(pl.seatedChairId);
+    }
+    const nearChair = findNearestEmptyChair(concertChairsState, self.currentPos, occupied, 1.65);
+    if (nearChair) {
+      foundZone = {
+        id: 'concert-chair',
+        chair: nearChair,
+        label: 'นั่งเก้าอี้ดูคอนเสิร์ต 🪑'
+      };
     }
   }
   if (!foundZone && vendorMarketState) {
@@ -5654,8 +6110,9 @@ function updateAtmosphere(dt, elapsed) {
     }
   }
 
-  const runHeavyAtmosphere = !state.lowGraphics || frameCounter % 2 === 0;
-  const effDt = state.lowGraphics ? dt * 2 : dt;
+  const runHalfRate = frameCounter % 2 === 0;
+  const runHeavyAtmosphere = !state.lowGraphics ? runHalfRate : frameCounter % 3 === 0;
+  const effDt = state.lowGraphics ? dt * 3 : dt * 2;
 
   // Sky lanterns drift upward
   if (skyRefs.lanterns && runHeavyAtmosphere) {
@@ -5678,12 +6135,14 @@ function updateAtmosphere(dt, elapsed) {
   }
 
   // Pond water shimmer
-  if (skyRefs.pondWaterMat && !state.lowGraphics) {
+  if (skyRefs.pondWaterMat && !state.lowGraphics && runHalfRate) {
     skyRefs.pondWaterMat.emissiveIntensity = 0.4 + Math.sin(elapsed * 1.4) * 0.08;
   }
 
   // Garden hanging lanterns & fireflies + central lantern plaza + chasing multi-color tunnel lights
-  updateTunnelNeonLights(elapsed);
+  if (runHalfRate) {
+    updateTunnelNeonLights(elapsed);
+  }
   if (gardenState && runHeavyAtmosphere) {
     updateTempleGardens(gardenState, effDt, elapsed);
   }
@@ -5693,12 +6152,18 @@ function updateAtmosphere(dt, elapsed) {
   if (frontRoadState && frontRoadState.root.visible) {
     updateFrontRoad(frontRoadState, dt);
   }
-  if (vendorMarketState && runHeavyAtmosphere) {
+  if (vendorMarketState && runHalfRate) {
     const selfP = state.players.get(state.selfId);
     updateVendorMarket(vendorMarketState, selfP?.currentPos, camera, elapsed, !state.joined || state.photoMode);
   }
+  if (concertChairsState && runHalfRate) {
+    updateConcertAudience(concertChairsState, camera, elapsed);
+  }
   updateMobileZoneCulling();
 }
+
+let lowFpsStreak = 0;
+let autoPerfAdjusted = false;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -5763,6 +6228,19 @@ function animate() {
         lbl.textContent = `${state.lowGraphics ? 'ประหยัด' : 'ปกติ'} (${measuredFps} FPS)`;
       }
     }
+    // Auto-Adaptive Smoothness Guard: if real device sustains < 22 FPS for 4s in Normal mode, ease GPU load!
+    if (state.joined && !state.lowGraphics && !autoPerfAdjusted && !document.hidden) {
+      if (measuredFps > 0 && measuredFps < 22) {
+        lowFpsStreak++;
+        if (lowFpsStreak >= 4) {
+          autoPerfAdjusted = true;
+          applyGraphicsMode(true);
+          showToast('⚡ ปรับโหมดประหยัดกราฟิกอัตโนมัติเพื่อความลื่นไหล (กดปุ่มกราฟิกเพื่อสลับคืนได้)');
+        }
+      } else {
+        lowFpsStreak = 0;
+      }
+    }
   }
 }
 
@@ -5779,7 +6257,7 @@ window.addEventListener('resize', () => {
 });
 
 async function bootstrap() {
-  applyGraphicsMode(state.lowGraphics);
+  initInAppBrowserGate();
   buildSkyAtmosphere();
   buildGroundAndRoads();
   buildCornerArchAndStringLights();
@@ -5801,8 +6279,11 @@ async function bootstrap() {
   frontRoadState = buildFrontRoad(scene, state.lowGraphics);
   photoBoothState = buildPhotoBooth(scene, addCollisionBox, state.lowGraphics);
   mergeStaticMeshesByMaterial(photoBoothState.root, [], false, [photoBoothState.photoLight]);
-  buildConcertChairs(scene, addCollisionBox);
+  concertChairsState = buildConcertChairs(scene, addCollisionBox);
   setupWorldCollisions();
+
+  // Apply graphics mode AFTER all procedural builders exist so mobile gets fast Lambert shaders on EVERYTHING!
+  applyGraphicsMode(state.lowGraphics);
 
   // Start rendering loop & pre-fetch music playlists before Lobby submit (for sync mobile audio unlock!)
   preloadAudioTrackLists();
@@ -5810,6 +6291,8 @@ async function bootstrap() {
 
   // Load all 7 GLB models with progress bar & wireframe fallback
   await loadAllModels();
+  // Re-apply graphics mode once GLB models are mounted so mobile shaders/LODs cover 100% of scene!
+  applyGraphicsMode(state.lowGraphics);
 
   // Transition from loading screen to Lobby overlay
   dom.loadingScreen.classList.add('hidden');

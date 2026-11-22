@@ -8,11 +8,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // ============================================================================
 
 export const VENDOR_PROP_META = {
-  meatball: { name: 'ลูกชิ้นปิ้ง', emoji: '🍢' },
-  cotton_candy: { name: 'สายไหมพาสเทล', emoji: '🍭' },
-  drink: { name: 'ชานม-น้ำลำไย', emoji: '🧋' },
-  glowstick: { name: 'แท่งไฟเชียร์', emoji: '✨' },
-  balloon: { name: 'ลูกโป่งสวรรค์', emoji: '🎈' }
+  meatball: { name: 'ลูกชิ้นปิ้ง', emoji: '🍢', edible: true, verb: 'กิน', verbEmoji: '😋', lines: ['😋 อร่อยจัง! ลูกชิ้นร้อน ๆ', '🍢 น้ำจิ้มแซ่บมาก!', '😋 อิ่มอร่อยหมดไม้แล้ว!'] },
+  cotton_candy: { name: 'สายไหมพาสเทล', emoji: '🍭', edible: true, verb: 'กิน', verbEmoji: '😋', lines: ['🍭 หวานหอมละมุนลิ้น!', '😋 สายไหมฟูอร่อยมาก!', '✨ กินสายไหมหมดแล้ว!'] },
+  drink: { name: 'ชานม-น้ำลำไย', emoji: '🧋', edible: true, verb: 'ดื่ม', verbEmoji: '🧋', lines: ['🧋 อึก ๆ เย็นชื่นใจ!', '😋 หอมหวานสดชื่นจัง!', '🧋 ดื่มหมดแก้วแล้ว สดชื่น!'] },
+  glowstick: { name: 'แท่งไฟเชียร์', emoji: '✨', edible: false },
+  balloon: { name: 'ลูกโป่งสวรรค์', emoji: '🎈', edible: false }
 };
 
 // 16 distinct Thai temple fair shop templates mapped into a 4x4 Sign Texture Atlas
@@ -397,9 +397,10 @@ function buildVendorRightArmGeo() {
 // 3D Handheld Props Builder (Mounted in Player's Hand & Synced Real-time!)
 // ----------------------------------------------------------------------------
 
-export function createHandheldPropMesh(propType) {
+export function createHandheldPropMesh(propType, bitesLeft = 3) {
   const g = new THREE.Group();
   g.name = `HandheldProp_${propType}`;
+  const bites = Math.max(1, Math.min(3, Number(bitesLeft) || 3));
 
   if (propType === 'meatball') {
     const stick = new THREE.Mesh(
@@ -421,7 +422,9 @@ export function createHandheldPropMesh(propType) {
       emissive: 0x5c0c0c,
       emissiveIntensity: 0.35
     });
-    for (let i = 0; i < 4; i++) {
+    // Visually shrinks as player eats: 4 balls (3 bites) -> 3 balls (2) -> 2 balls (1)!
+    const ballCount = bites === 3 ? 4 : bites === 2 ? 3 : 2;
+    for (let i = 0; i < ballCount; i++) {
       const b = new THREE.Mesh(new THREE.SphereGeometry(0.036, 8, 7), ballMat);
       b.position.y = 0.11 + i * 0.068;
       g.add(b);
@@ -443,16 +446,18 @@ export function createHandheldPropMesh(propType) {
     cone.position.y = 0.1;
     g.add(cone);
 
-    const puffs = [
+    const allPuffs = [
       { y: 0.24, r: 0.095, c: 0xf472b6 },
       { y: 0.33, r: 0.088, c: 0x7dd3fc },
       { y: 0.41, r: 0.072, c: 0xfef08a },
       { x: 0.045, y: 0.29, r: 0.068, c: 0xf9a8d4 },
       { x: -0.045, y: 0.31, r: 0.065, c: 0xc4b5fd }
     ];
-    for (const p of puffs) {
+    const puffLimit = bites === 3 ? 5 : bites === 2 ? 3 : 1;
+    for (let i = 0; i < puffLimit; i++) {
+      const p = allPuffs[i];
       const m = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(p.r, 1),
+        new THREE.DodecahedronGeometry(p.r * (bites === 1 ? 0.85 : 1), 1),
         new THREE.MeshStandardMaterial({
           color: p.c,
           roughness: 0.7,
@@ -468,21 +473,30 @@ export function createHandheldPropMesh(propType) {
   }
 
   if (propType === 'drink') {
-    // Milk tea / iced longan cup + boba pearls + dome lid + straw
-    const cup = new THREE.Mesh(
+    // Milk tea / iced longan cup + liquid level drops cleanly with each sip!
+    const fillRatio = bites === 3 ? 1.0 : bites === 2 ? 0.68 : 0.38;
+    const outerCup = new THREE.Mesh(
       new THREE.CylinderGeometry(0.068, 0.048, 0.19, 12),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc, transparent: true, opacity: 0.32, roughness: 0.15 })
+    );
+    outerCup.position.y = 0.08;
+    g.add(outerCup);
+
+    const liqH = 0.18 * fillRatio;
+    const cup = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.047 + 0.017 * fillRatio, 0.046, liqH, 12),
       new THREE.MeshStandardMaterial({
         color: 0xd97706,
         roughness: 0.25,
         emissive: 0x6b3504,
-        emissiveIntensity: 0.38
+        emissiveIntensity: 0.42
       })
     );
-    cup.position.y = 0.08;
+    cup.position.y = -0.01 + liqH * 0.5;
     g.add(cup);
 
     const bobaBand = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.052, 0.047, 0.048, 10),
+      new THREE.CylinderGeometry(0.052, 0.047, 0.045, 10),
       new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.4 })
     );
     bobaBand.position.y = 0.01;

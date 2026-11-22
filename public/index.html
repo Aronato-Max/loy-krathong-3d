@@ -4,10 +4,24 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>งานลอยกระทง วัดทุ่งท่าช้าง (23–24 พ.ย. 69) — Multiplayer</title>
+  <script>
+    // Auto-redirect out of LINE In-App Browser into Safari (iOS) or Chrome (Android)
+    (function () {
+      try {
+        var ua = navigator.userAgent || '';
+        var isLine = /\bLine\//i.test(ua);
+        var url = new URL(window.location.href);
+        if (isLine && url.searchParams.get('openExternalBrowser') !== '1') {
+          url.searchParams.set('openExternalBrowser', '1');
+          window.location.replace(url.toString());
+        }
+      } catch (e) {}
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=15">
+  <link rel="stylesheet" href="/css/style.css?v=16">
   <script type="importmap">
     {
       "imports": {
@@ -18,6 +32,28 @@
   </script>
 </head>
 <body>
+  <!-- 0. In-App Browser (LINE / Facebook / IG) External Browser Helper Gate -->
+  <section id="inapp-browser-gate" class="overlay-screen inapp-gate hidden" aria-labelledby="inapp-gate-title">
+    <div class="inapp-card glass-panel">
+      <div class="festival-badge">🌐 เปิดในเบราว์เซอร์หลักเพื่อความลื่นไหล</div>
+      <h2 id="inapp-gate-title">เปิดงานลอยกระทงนอกแอป LINE</h2>
+      <p id="inapp-gate-desc" class="subtitle">
+        เบราว์เซอร์ในแอป LINE อาจทำให้ภาพกระตุก เสียงไม่ออก หรือกดไมโครโฟนไม่ได้ แนะนำให้เปิดผ่าน <b>Chrome</b> หรือ <b>Safari</b> ครับ
+      </p>
+      <div class="inapp-actions">
+        <a id="btn-open-external" class="btn-primary btn-large inapp-ext-btn" href="#">
+          🌐 เปิดในเบราว์เซอร์ภายนอก (แนะนำ)
+        </a>
+        <button type="button" id="btn-copy-link" class="btn-secondary">
+          📋 คัดลอกลิงก์ไปวางใน Safari / Chrome
+        </button>
+        <button type="button" id="btn-continue-inapp" class="inapp-skip-btn">
+          เข้าชมในแอปนี้ต่อไป
+        </button>
+      </div>
+    </div>
+  </section>
+
   <!-- 3D World Canvas & Floating 3D Labels -->
   <canvas id="world-canvas" aria-label="โลกเสมือนจริงงานลอยกระทง 3 มิติ"></canvas>
   <div id="labels-layer" aria-hidden="true"></div>
@@ -189,6 +225,7 @@
         <span><b>ลากเมาส์</b> หมุนกล้อง</span>
         <span><b>Scroll</b> ซูม</span>
         <span><b>E</b> โต้ตอบ</span>
+        <span><b>F</b> กิน/ดื่ม</span>
         <span><b>H</b> โบกมือ</span>
         <span><b>V</b> กดค้างพูด</span>
       </div>
@@ -205,6 +242,11 @@
     <!-- Bottom-Right: Right-Edge Actions (Sprint, Wave, PTT) + Collapsible Chat -->
     <div id="hud-bottom-right" class="hud-bottom-right">
       <div class="voice-action-row">
+        <button type="button" id="btn-eat" class="eat-btn hidden" aria-label="กินของกินหรือดื่มน้ำในมือ" title="กิน/ดื่มของในมือ (F)">
+          <span id="eat-icon" aria-hidden="true">😋</span>
+          <span id="eat-text" class="eat-text">กิน (F)</span>
+          <span id="eat-badge" class="eat-badge">3</span>
+        </button>
         <button type="button" id="btn-sprint" class="sprint-btn" aria-pressed="false" aria-label="เปิดหรือปิดวิ่งเร็ว" title="วิ่งเร็ว">
           <span aria-hidden="true">🏃</span>
           <span class="sprint-text">วิ่ง</span>
@@ -402,8 +444,8 @@
   <!-- Hidden DOM container for mobile-safe HTMLAudioElement playback (music + WebRTC voice) -->
   <div id="audio-elements-sink" class="sr-audio-sink" aria-hidden="true"></div>
 
-  <script src="/config.js?v=15"></script>
+  <script src="/config.js?v=16"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=15"></script>
+  <script type="module" src="/js/app.js?v=16"></script>
 </body>
 </html>
