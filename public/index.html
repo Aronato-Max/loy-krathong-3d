@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=5">
+  <link rel="stylesheet" href="/css/style.css?v=6">
   <script type="importmap">
     {
       "imports": {
@@ -121,36 +121,51 @@
         <span class="divider">•</span>
         <span id="hud-online-count">ออนไลน์ 1 คน</span>
       </div>
-      <div class="hud-pill krathong-status-pill" id="hud-held-krathong">
+      <div class="hud-pill krathong-status-pill is-empty" id="hud-held-krathong">
         <span>🪷 ยังไม่ได้ถือกระทง</span>
       </div>
       <div class="hud-toolbar">
-        <button type="button" id="btn-music-toggle" class="hud-btn" aria-pressed="true" title="เปิด/ปิดเสียงเพลงคอนเสิร์ต">
-          🎵 <span class="btn-label">เพลง: เปิด</span>
+        <button type="button" id="btn-music-toggle" class="hud-btn" aria-pressed="true" aria-label="เปิดหรือปิดเสียงเพลงคอนเสิร์ต" title="เปิด/ปิดเสียงเพลงคอนเสิร์ต">
+          <span aria-hidden="true">🎵</span> <span class="btn-label">เพลง: เปิด</span>
         </button>
-        <button type="button" id="btn-gfx-toggle" class="hud-btn" aria-pressed="false" title="สลับโหมดประหยัดกราฟิก">
-          ⚙️ <span class="btn-label">กราฟิก: ปกติ</span>
+        <button type="button" id="btn-gfx-toggle" class="hud-btn" aria-pressed="false" aria-label="สลับโหมดประหยัดกราฟิก" title="สลับโหมดประหยัดกราฟิก">
+          <span aria-hidden="true">⚙️</span> <span class="btn-label">กราฟิก: ปกติ</span>
         </button>
-        <button type="button" id="btn-mic-setup" class="hud-btn" title="สถานะไมโครโฟน">
-          🎤 <span id="mic-state-text" class="btn-label">ไมค์: พร้อม</span>
+        <button type="button" id="btn-mic-setup" class="hud-btn" aria-label="ตั้งค่าไมโครโฟน" title="สถานะไมโครโฟน">
+          <span aria-hidden="true">🎤</span> <span id="mic-state-text" class="btn-label">ไมค์: พร้อม</span>
         </button>
       </div>
     </div>
 
-    <!-- Top-Right Minimap (Navigation Only - No Teleport) -->
+    <!-- Top-Right: Fullscreen + Collapsible Minimap -->
     <div id="minimap-container" class="hud-top-right">
-      <button type="button" id="minimap-toggle" class="minimap-card" aria-expanded="false" aria-label="แผนที่นำทาง (แตะเพื่อขยายหรือย่อ)">
+      <div class="hud-top-right-actions">
+        <button type="button" id="btn-fullscreen" class="hud-icon-pill" aria-pressed="false" aria-label="ขยายเต็มจอ" title="ขยายเต็มจอ">
+          <span class="fs-icon" aria-hidden="true">⛶</span>
+          <span class="btn-label">เต็มจอ</span>
+        </button>
+        <button type="button" id="btn-minimap-open" class="hud-icon-pill hidden" aria-expanded="false" aria-label="เปิดแผนผังงาน" title="เปิดแผนผังงาน">
+          <span aria-hidden="true">🗺️</span>
+          <span class="btn-label">แผนที่</span>
+        </button>
+      </div>
+      <div id="minimap-card" class="minimap-card">
         <div class="minimap-header">
-          <span>🗺️ แผนผังงาน</span>
-          <span id="minimap-zoom-hint">แตะขยาย</span>
+          <span class="minimap-title">🗺️ แผนที่</span>
+          <div class="minimap-header-actions">
+            <span id="minimap-zoom-hint">ขยาย</span>
+            <button type="button" id="btn-minimap-hide" class="minimap-hide-btn" aria-label="ซ่อนแผนผังงาน" title="ซ่อนแผนที่">✕</button>
+          </div>
         </div>
-        <canvas id="minimap-canvas" width="220" height="220"></canvas>
-        <div class="minimap-legend">
-          <span><i class="dot-self"></i>คุณ</span>
-          <span><i class="dot-peer"></i>เพื่อน</span>
-          <span><i class="dot-pond"></i>สระน้ำ</span>
-        </div>
-      </button>
+        <button type="button" id="minimap-toggle" class="minimap-canvas-btn" aria-expanded="false" aria-label="แผนที่นำทาง (แตะเพื่อขยายหรือย่อ)">
+          <canvas id="minimap-canvas" width="220" height="220"></canvas>
+          <div class="minimap-legend">
+            <span><i class="dot-self"></i>คุณ</span>
+            <span><i class="dot-peer"></i>เพื่อน</span>
+            <span><i class="dot-pond"></i>สระน้ำ</span>
+          </div>
+        </button>
+      </div>
     </div>
 
     <!-- Center Toast & Interaction Prompt -->
@@ -163,7 +178,7 @@
       </button>
     </div>
 
-    <!-- Bottom-Left: Mobile Joystick + Sprint / Desktop Hint -->
+    <!-- Bottom-Left: Mobile Joystick / Desktop Hint -->
     <div class="hud-bottom-left">
       <div class="desktop-controls-hint" id="desktop-hint">
         <span><b>WASD / ลูกศร</b> เดิน</span>
@@ -181,24 +196,30 @@
             <div id="joystick-knob" class="joystick-knob"></div>
           </div>
         </div>
-        <button type="button" id="btn-sprint" class="sprint-btn" aria-pressed="false">
-          🏃 วิ่ง
-        </button>
       </div>
     </div>
 
-    <!-- Bottom-Right: Wave, Push-to-Talk & Chat -->
-    <div class="hud-bottom-right">
+    <!-- Bottom-Right: Right-Edge Actions (Sprint, Wave, PTT) + Collapsible Chat -->
+    <div id="hud-bottom-right" class="hud-bottom-right">
       <div class="voice-action-row">
-        <button type="button" id="btn-wave" class="wave-btn" title="โบกมือทักทายเพื่อน (H)">
+        <button type="button" id="btn-sprint" class="sprint-btn" aria-pressed="false" aria-label="เปิดหรือปิดวิ่งเร็ว" title="วิ่งเร็ว">
+          <span aria-hidden="true">🏃</span>
+          <span class="sprint-text">วิ่ง</span>
+        </button>
+        <button type="button" id="btn-wave" class="wave-btn" aria-label="โบกมือทักทายเพื่อน" title="โบกมือทักทายเพื่อน (H)">
           <span aria-hidden="true">👋</span>
           <span class="wave-text">โบกมือ (H)</span>
         </button>
-        <button type="button" id="btn-ptt" class="ptt-btn" aria-pressed="false" title="กดค้างหรือกด V เพื่อพูดคุยด้วยเสียงใกล้เคียง">
+        <button type="button" id="btn-ptt" class="ptt-btn" aria-pressed="false" aria-label="กดค้างเพื่อพูดคุยด้วยเสียง" title="กดค้างหรือกด V เพื่อพูดคุยด้วยเสียงใกล้เคียง">
           <span class="ptt-icon" aria-hidden="true">🎙️</span>
           <span class="ptt-text">กดค้างพูด (V)</span>
         </button>
       </div>
+
+      <button type="button" id="btn-chat-fab" class="chat-fab-btn" aria-expanded="false" aria-label="เปิดแชตงานลอยกระทง" title="เปิดแชต">
+        <span aria-hidden="true">💬</span>
+        <span id="chat-unread-dot" class="chat-unread-dot hidden" aria-hidden="true"></span>
+      </button>
 
       <div id="chat-panel" class="chat-panel">
         <div class="chat-header">
@@ -322,8 +343,8 @@
     </div>
   </dialog>
 
-  <script src="/config.js?v=5"></script>
+  <script src="/config.js?v=6"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=5"></script>
+  <script type="module" src="/js/app.js?v=6"></script>
 </body>
 </html>

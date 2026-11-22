@@ -204,6 +204,10 @@ const dom = {
   btnMicSetup: document.getElementById('btn-mic-setup'),
   micStateText: document.getElementById('mic-state-text'),
 
+  btnFullscreen: document.getElementById('btn-fullscreen'),
+  btnMinimapOpen: document.getElementById('btn-minimap-open'),
+  btnMinimapHide: document.getElementById('btn-minimap-hide'),
+  minimapCard: document.getElementById('minimap-card'),
   minimapToggle: document.getElementById('minimap-toggle'),
   minimapZoomHint: document.getElementById('minimap-zoom-hint'),
   minimapCanvas: document.getElementById('minimap-canvas'),
@@ -215,10 +219,13 @@ const dom = {
 
   joystickZone: document.getElementById('joystick-zone'),
   joystickKnob: document.getElementById('joystick-knob'),
+  hudBottomRight: document.getElementById('hud-bottom-right'),
   btnSprint: document.getElementById('btn-sprint'),
   btnWave: document.getElementById('btn-wave'),
   btnPtt: document.getElementById('btn-ptt'),
 
+  btnChatFab: document.getElementById('btn-chat-fab'),
+  chatUnreadDot: document.getElementById('chat-unread-dot'),
   chatPanel: document.getElementById('chat-panel'),
   btnChatToggle: document.getElementById('btn-chat-toggle'),
   chatBody: document.getElementById('chat-body'),
@@ -258,7 +265,9 @@ const state = {
   activeZone: null,
   isSpeaking: false,
   musicEnabled: true,
+  minimapHidden: window.matchMedia('(max-width: 720px)').matches || window.matchMedia('(pointer: coarse)').matches,
   minimapExpanded: false,
+  chatCollapsed: window.matchMedia('(max-width: 640px)').matches,
   sprintTouch: false,
   keys: new Set(),
   joystick: { active: false, dx: 0, dy: 0 },
@@ -2439,6 +2448,7 @@ function updatePlayerHeldKrathong(playerObj, krathongType) {
     dom.hudHeldKrathong.textContent = meta
       ? `${meta.emoji} ถือ${meta.name} (ไปที่ท่าน้ำเพื่อลอย)`
       : '🪷 ยังไม่ได้ถือกระทง';
+    dom.hudHeldKrathong.classList.toggle('is-empty', !meta);
   }
 }
 
@@ -2519,7 +2529,10 @@ function removePlayer(id) {
 }
 
 function updateOnlineCounter() {
-  dom.hudOnlineCount.textContent = `ออนไลน์ ${state.players.size}/${state.roomMax} คน`;
+  const isNarrow = window.matchMedia('(max-width: 640px)').matches;
+  dom.hudOnlineCount.textContent = isNarrow
+    ? `${state.players.size}/${state.roomMax}`
+    : `ออนไลน์ ${state.players.size}/${state.roomMax} คน`;
   if (dom.hudRoomName) {
     dom.hudRoomName.textContent = state.roomName;
   }
@@ -2952,6 +2965,9 @@ function appendChatMessage(msg) {
     dom.chatMessages.removeChild(dom.chatMessages.firstChild);
   }
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+  if (state.chatCollapsed && msg.type === 'player' && dom.chatUnreadDot) {
+    dom.chatUnreadDot.classList.remove('hidden');
+  }
 }
 
 const MAX_VOICE_PEERS = 6;
@@ -3456,6 +3472,103 @@ function showRandomBlessing() {
 }
 dom.btnPrayAgain.addEventListener('click', showRandomBlessing);
 
+// Fullscreen API helpers (Android Chrome & PC; gracefully hidden on iOS Safari where unsupported)
+function isFullscreenSupported() {
+  const el = document.documentElement;
+  const hasFn = Boolean(el.requestFullscreen || el.webkitRequestFullscreen);
+  return hasFn && document.fullscreenEnabled !== false;
+}
+
+function getFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function requestAppFullscreen() {
+  if (!isFullscreenSupported() || getFullscreenElement()) return;
+  const el = document.documentElement;
+  try {
+    const p = el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen?.();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch {}
+}
+
+function toggleAppFullscreen() {
+  if (!isFullscreenSupported()) return;
+  try {
+    if (getFullscreenElement()) {
+      const p = document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen?.();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } else {
+      requestAppFullscreen();
+    }
+  } catch {}
+}
+
+function syncFullscreenButton() {
+  if (!dom.btnFullscreen) return;
+  if (!isFullscreenSupported()) {
+    dom.btnFullscreen.classList.add('hidden');
+    return;
+  }
+  const active = Boolean(getFullscreenElement());
+  dom.btnFullscreen.setAttribute('aria-pressed', String(active));
+  dom.btnFullscreen.setAttribute('aria-label', active ? 'ออกจากโหมดเต็มจอ' : 'ขยายเต็มจอ');
+  dom.btnFullscreen.title = active ? 'ออกจากโหมดเต็มจอ' : 'ขยายเต็มจอ';
+  const icon = dom.btnFullscreen.querySelector('.fs-icon');
+  const lbl = dom.btnFullscreen.querySelector('.btn-label');
+  if (icon) icon.textContent = active ? '⤡' : '⛶';
+  if (lbl) lbl.textContent = active ? 'ออกเต็มจอ' : 'เต็มจอ';
+}
+
+function applyMinimapState() {
+  if (!dom.minimapCard || !dom.btnMinimapOpen) return;
+  dom.minimapCard.classList.toggle('collapsed', state.minimapHidden);
+  dom.minimapCard.classList.toggle('expanded', !state.minimapHidden && state.minimapExpanded);
+  dom.btnMinimapOpen.classList.toggle('hidden', !state.minimapHidden);
+  dom.btnMinimapOpen.setAttribute('aria-expanded', String(!state.minimapHidden));
+  if (dom.minimapToggle) {
+    dom.minimapToggle.setAttribute('aria-expanded', String(!state.minimapHidden && state.minimapExpanded));
+  }
+  if (dom.minimapZoomHint) {
+    dom.minimapZoomHint.textContent = state.minimapExpanded ? 'ย่อ' : 'ขยาย';
+  }
+  if (!state.minimapHidden && state.joined) {
+    drawMinimap();
+  }
+}
+
+function applyChatCollapsedState() {
+  if (dom.hudBottomRight) {
+    dom.hudBottomRight.classList.toggle('chat-collapsed', state.chatCollapsed);
+  }
+  if (dom.chatBody) {
+    dom.chatBody.classList.toggle('collapsed', state.chatCollapsed);
+  }
+  if (dom.btnChatToggle) {
+    dom.btnChatToggle.setAttribute('aria-expanded', String(!state.chatCollapsed));
+    dom.btnChatToggle.textContent = state.chatCollapsed ? '▴' : '▾';
+  }
+  if (dom.btnChatFab) {
+    dom.btnChatFab.setAttribute('aria-expanded', String(!state.chatCollapsed));
+  }
+  if (!state.chatCollapsed && dom.chatUnreadDot) {
+    dom.chatUnreadDot.classList.add('hidden');
+  }
+}
+
+syncFullscreenButton();
+applyMinimapState();
+applyChatCollapsedState();
+
+document.addEventListener('fullscreenchange', () => {
+  syncFullscreenButton();
+  window.dispatchEvent(new Event('resize'));
+});
+document.addEventListener('webkitfullscreenchange', () => {
+  syncFullscreenButton();
+  window.dispatchEvent(new Event('resize'));
+});
+
 // Lobby Form Bindings
 dom.optLowGfx.checked = state.lowGraphics;
 
@@ -3470,11 +3583,18 @@ dom.lobbyForm.addEventListener('submit', async (e) => {
   state.selectedRoomId = dom.selectRoom ? dom.selectRoom.value : 'auto';
   applyGraphicsMode(dom.optLowGfx.checked);
 
+  // Auto-request fullscreen synchronously on Android/touch devices inside the user tap gesture
+  if (window.matchMedia('(pointer: coarse)').matches) {
+    requestAppFullscreen();
+  }
+
   await initConcertAudio();
   if (dom.optMic.checked) {
     await requestMicrophoneAccess(true);
   }
 
+  applyMinimapState();
+  applyChatCollapsedState();
   connectSocketAndJoin();
 });
 
@@ -3483,11 +3603,30 @@ dom.btnInteract.addEventListener('click', () => {
   if (state.activeZone) openZoneDialog(state.activeZone);
 });
 
+if (dom.btnFullscreen) {
+  dom.btnFullscreen.addEventListener('click', toggleAppFullscreen);
+}
+
+if (dom.btnMinimapOpen) {
+  dom.btnMinimapOpen.addEventListener('click', () => {
+    state.minimapHidden = false;
+    state.minimapExpanded = false;
+    applyMinimapState();
+  });
+}
+
+if (dom.btnMinimapHide) {
+  dom.btnMinimapHide.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.minimapHidden = true;
+    state.minimapExpanded = false;
+    applyMinimapState();
+  });
+}
+
 dom.minimapToggle.addEventListener('click', () => {
   state.minimapExpanded = !state.minimapExpanded;
-  dom.minimapToggle.classList.toggle('expanded', state.minimapExpanded);
-  dom.minimapToggle.setAttribute('aria-expanded', String(state.minimapExpanded));
-  dom.minimapZoomHint.textContent = state.minimapExpanded ? 'แตะย่อ' : 'แตะขยาย';
+  applyMinimapState();
 });
 
 dom.btnMusicToggle.addEventListener('click', async () => {
@@ -3507,10 +3646,16 @@ dom.btnMicSetup.addEventListener('click', async () => {
   if (ok) showToast('ไมโครโฟนพร้อมใช้งาน กดปุ่ม V หรือแตะปุ่มไมค์ค้างไว้เพื่อพูด');
 });
 
+if (dom.btnChatFab) {
+  dom.btnChatFab.addEventListener('click', () => {
+    state.chatCollapsed = false;
+    applyChatCollapsedState();
+  });
+}
+
 dom.btnChatToggle.addEventListener('click', () => {
-  const collapsed = dom.chatBody.classList.toggle('collapsed');
-  dom.btnChatToggle.setAttribute('aria-expanded', String(!collapsed));
-  dom.btnChatToggle.textContent = collapsed ? '▴' : '▾';
+  state.chatCollapsed = !state.chatCollapsed;
+  applyChatCollapsedState();
 });
 
 dom.chatForm.addEventListener('submit', (e) => {
@@ -4067,7 +4212,7 @@ function animate() {
     updateLocalPlayer(dt);
     updatePlayersAnimationAndLabels(dt, elapsed);
     const nowMs = performance.now();
-    if (nowMs - lastMinimapAt >= 120) {
+    if (!state.minimapHidden && nowMs - lastMinimapAt >= 120) {
       lastMinimapAt = nowMs;
       drawMinimap();
     }
@@ -4108,6 +4253,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   resizePreviewCanvas();
+  if (state.joined) updateOnlineCounter();
 });
 
 async function bootstrap() {
