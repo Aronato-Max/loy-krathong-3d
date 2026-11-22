@@ -295,37 +295,56 @@ camera.position.set(0, 5, 67);
 let gardenState = null;
 let lanternPlazaState = null;
 let frontRoadState = null;
+const perfLodRefs = {
+  detailedWalls: null,
+  liteWalls: null,
+  parkedMotoGroup: null,
+  parkedMotoInsts: [],
+  concertAnimNodes: [],
+  concertPos: new THREE.Vector3(-21, 0, -52.5),
+  krathongTablesRoot: null,
+  krathongPos: new THREE.Vector3(20, 0, -25.8)
+};
 
-function applyGraphicsMode(low) {
-  state.lowGraphics = Boolean(low);
-  renderer.setPixelRatio(
-    state.lowGraphics ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)
-  );
-  renderer.shadowMap.enabled = !state.lowGraphics;
-  if (!state.lowGraphics) {
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.shadowMap.needsUpdate = true;
+function applyPerfLodMode(low) {
+  if (perfLodRefs.detailedWalls) {
+    perfLodRefs.detailedWalls.visible = !low;
   }
-  if (skyRefs.stars) {
-    skyRefs.stars.visible = true;
+  if (perfLodRefs.liteWalls) {
+    perfLodRefs.liteWalls.visible = Boolean(low);
   }
-  if (skyRefs.lanterns) {
-    skyRefs.lanterns.count = state.lowGraphics ? 24 : 56;
-    skyRefs.lanterns.instanceMatrix.needsUpdate = true;
+  for (const item of perfLodRefs.parkedMotoInsts) {
+    item.mesh.count = low ? Math.max(1, Math.ceil(item.fullCount * 0.5)) : item.fullCount;
+    item.mesh.instanceMatrix.needsUpdate = true;
   }
-  if (gardenState) {
-    setGardenGraphicsMode(gardenState, state.lowGraphics);
+  // Restore full visibility immediately when leaving lowGraphics mode
+  if (!low) {
+    for (const n of perfLodRefs.concertAnimNodes) n.visible = true;
+    if (perfLodRefs.krathongTablesRoot) perfLodRefs.krathongTablesRoot.visible = true;
+    if (perfLodRefs.parkedMotoGroup) perfLodRefs.parkedMotoGroup.visible = true;
+    if (frontRoadState) frontRoadState.root.visible = true;
   }
-  if (lanternPlazaState) {
-    setLanternPlazaGraphicsMode(lanternPlazaState, state.lowGraphics);
+}
+
+function updateMobileZoneCulling() {
+  if (!state.lowGraphics) return;
+  const camZ = camera.position.z;
+
+  // Hide 530-draw-call concert dancers when >52m away (stage & screen remain visible!)
+  const showDancers = camera.position.distanceTo(perfLodRefs.concertPos) <= 52;
+  for (let i = 0; i < perfLodRefs.concertAnimNodes.length; i++) {
+    perfLodRefs.concertAnimNodes[i].visible = showDancers;
+  }
+
+  if (perfLodRefs.krathongTablesRoot) {
+    perfLodRefs.krathongTablesRoot.visible =
+      camera.position.distanceTo(perfLodRefs.krathongPos) <= 52;
+  }
+  if (perfLodRefs.parkedMotoGroup) {
+    perfLodRefs.parkedMotoGroup.visible = camZ > 12;
   }
   if (frontRoadState) {
-    setFrontRoadGraphicsMode(frontRoadState, state.lowGraphics);
-  }
-  if (dom.btnGfxToggle) {
-    dom.btnGfxToggle.setAttribute('aria-pressed', String(state.lowGraphics));
-    const lbl = dom.btnGfxToggle.querySelector('.btn-label');
-    if (lbl) lbl.textContent = state.lowGraphics ? 'กราฟิก: ประหยัด' : 'กราฟิก: ปกติ';
+    frontRoadState.root.visible = camZ > 18;
   }
 }
 
@@ -338,7 +357,7 @@ const skyRefs = {
   staticSigns: []
 };
 
-// Lighting (kept compact at 3 key PointLights + Hemi + Moon for fast fragment shaders on mobile & PC)
+// Lighting (kept compact at 3 key PointLights + Hemi + Moon; in lowGraphics only Hemi + Moon + Sala)
 const hemiLight = new THREE.HemisphereLight(0x8aa2f0, 0x243828, 1.48);
 scene.add(hemiLight);
 
@@ -366,6 +385,54 @@ scene.add(stageLight);
 const salaMainLight = new THREE.PointLight(0xffd27d, 52, 26, 1.2);
 salaMainLight.position.set(31.2, 4.6, 13);
 scene.add(salaMainLight);
+
+function applyGraphicsMode(low) {
+  state.lowGraphics = Boolean(low);
+  document.body.classList.toggle('low-gfx', state.lowGraphics);
+
+  // Mobile turbo mode: lower fill-rate + shorter far frustum + fewer dynamic lights + no blur passes
+  renderer.setPixelRatio(
+    state.lowGraphics ? 0.9 : Math.min(window.devicePixelRatio || 1, 1.5)
+  );
+  renderer.shadowMap.enabled = !state.lowGraphics;
+  if (!state.lowGraphics) {
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.needsUpdate = true;
+  }
+
+  camera.far = state.lowGraphics ? 95 : 165;
+  camera.updateProjectionMatrix();
+  if (scene.fog) {
+    scene.fog.density = state.lowGraphics ? 0.0088 : 0.0062;
+  }
+
+  entranceLight.visible = !state.lowGraphics;
+  stageLight.visible = !state.lowGraphics;
+  hemiLight.intensity = state.lowGraphics ? 1.75 : 1.48;
+
+  if (skyRefs.stars) {
+    skyRefs.stars.visible = true;
+  }
+  if (skyRefs.lanterns) {
+    skyRefs.lanterns.count = state.lowGraphics ? 20 : 56;
+    skyRefs.lanterns.instanceMatrix.needsUpdate = true;
+  }
+  if (gardenState) {
+    setGardenGraphicsMode(gardenState, state.lowGraphics);
+  }
+  if (lanternPlazaState) {
+    setLanternPlazaGraphicsMode(lanternPlazaState, state.lowGraphics);
+  }
+  if (frontRoadState) {
+    setFrontRoadGraphicsMode(frontRoadState, state.lowGraphics);
+  }
+  applyPerfLodMode(state.lowGraphics);
+  if (dom.btnGfxToggle) {
+    dom.btnGfxToggle.setAttribute('aria-pressed', String(state.lowGraphics));
+    const lbl = dom.btnGfxToggle.querySelector('.btn-label');
+    if (lbl) lbl.textContent = state.lowGraphics ? 'กราฟิก: ประหยัด' : 'กราฟิก: ปกติ';
+  }
+}
 
 // ============================================================================
 // 4. COLLISION SYSTEM (AABBs & Rotated Boxes)
@@ -1125,11 +1192,14 @@ function populateParkedMotorcycles(motoScene) {
         inst.setMatrixAt(idx, dummy.matrix);
       });
       inst.instanceMatrix.needsUpdate = true;
+      perfLodRefs.parkedMotoInsts.push({ mesh: inst, fullCount: placements.length });
       motoGroup.add(inst);
     }
   });
 
   scene.add(motoGroup);
+  perfLodRefs.parkedMotoGroup = motoGroup;
+  applyPerfLodMode(state.lowGraphics);
 }
 
 function buildVendorStalls() {
@@ -1421,7 +1491,7 @@ function createFallbackWireframe(spec) {
   return group;
 }
 
-function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = false) {
+function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = false, extraSkipObjects = []) {
   const animatedNames = new Set();
   for (const clip of animatedClips || []) {
     for (const track of clip.tracks || []) {
@@ -1431,12 +1501,18 @@ function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = fals
   }
 
   const skipNodes = new Set();
+  const topAnimatedRoots = [];
   if (animatedNames.size > 0) {
     root.traverse((obj) => {
       if (obj.name && animatedNames.has(obj.name)) {
+        if (!skipNodes.has(obj)) topAnimatedRoots.push(obj);
         obj.traverse((desc) => skipNodes.add(desc));
       }
     });
+  }
+  for (const extra of extraSkipObjects || []) {
+    if (!extra) continue;
+    extra.traverse((desc) => skipNodes.add(desc));
   }
 
   root.updateMatrixWorld(true);
@@ -1490,6 +1566,7 @@ function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = fals
     mergedMesh.receiveShadow = true;
     root.add(mergedMesh);
   }
+  return topAnimatedRoots;
 }
 
 function createFenceRun(parentGroup, templateRoot, startX, startZ, endX, endZ) {
@@ -1538,7 +1615,71 @@ function createFenceRun(parentGroup, templateRoot, startX, startZ, endX, endZ) {
     chunkIdx++;
   }
 
+  // Batch each wall side independently so walls behind the camera frustum-cull cleanly!
+  mergeStaticMeshesByMaterial(runGroup, [], false);
   parentGroup.add(runGroup);
+}
+
+function buildLiteTempleWalls() {
+  const liteGroup = new THREE.Group();
+  liteGroup.name = 'TemplePerimeterWallsLite';
+
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xe6d6c3, roughness: 0.85 });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0xa1493c, roughness: 0.78 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.45 });
+
+  const runs = [
+    [-6.8, 54, -42.0, 54],
+    [6.8, 54, 57.0, 54],
+    [-42.0, 54, -42.0, -58.5],
+    [57.0, 54, 57.0, -58.5],
+    [-42.0, -58.5, 57.0, -58.5]
+  ];
+
+  const pillarCoords = [];
+  for (const [sx, sz, ex, ez] of runs) {
+    const dx = ex - sx;
+    const dz = ez - sz;
+    const len = Math.hypot(dx, dz);
+    const angle = Math.atan2(-dz, dx);
+
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(len, 1.85, 0.34), wallMat);
+    wall.position.set((sx + ex) * 0.5, 0.925, (sz + ez) * 0.5);
+    wall.rotation.y = angle;
+    liteGroup.add(wall);
+
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.16, 0.44), trimMat);
+    rail.position.set((sx + ex) * 0.5, 1.9, (sz + ez) * 0.5);
+    rail.rotation.y = angle;
+    liteGroup.add(rail);
+
+    const steps = Math.max(1, Math.round(len / 5.0));
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps;
+      pillarCoords.push([sx + dx * u, sz + dz * u]);
+    }
+  }
+
+  const pInst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.46, 2.25, 0.46), wallMat, pillarCoords.length);
+  const cInst = new THREE.InstancedMesh(new THREE.ConeGeometry(0.24, 0.42, 4), goldMat, pillarCoords.length);
+  const d = new THREE.Object3D();
+  pillarCoords.forEach(([px, pz], i) => {
+    d.position.set(px, 1.125, pz);
+    d.rotation.set(0, 0, 0);
+    d.updateMatrix();
+    pInst.setMatrixAt(i, d.matrix);
+
+    d.position.set(px, 2.45, pz);
+    d.rotation.set(0, Math.PI / 4, 0);
+    d.updateMatrix();
+    cInst.setMatrixAt(i, d.matrix);
+  });
+  pInst.instanceMatrix.needsUpdate = true;
+  cInst.instanceMatrix.needsUpdate = true;
+  liteGroup.add(pInst, cInst);
+
+  scene.add(liteGroup);
+  return liteGroup;
 }
 
 function buildTemplePerimeterWalls(fenceScene) {
@@ -1557,9 +1698,10 @@ function buildTemplePerimeterWalls(fenceScene) {
   // North (back) wall from (-42.0, -58.5) to (+57.0, -58.5)
   createFenceRun(wallsGroup, templateRoot, -42.0, -58.5, 57.0, -58.5);
 
-  // Batch ~4,500 fence draw calls down into ~6 merged static meshes!
-  mergeStaticMeshesByMaterial(wallsGroup, [], false);
   scene.add(wallsGroup);
+  perfLodRefs.detailedWalls = wallsGroup;
+  perfLodRefs.liteWalls = buildLiteTempleWalls();
+  applyPerfLodMode(state.lowGraphics);
 }
 
 async function loadAllModels() {
@@ -1615,7 +1757,12 @@ async function loadAllModels() {
       modelRoot.rotation.y = spec.rotY;
       // Only large architectural buildings cast static baked shadows (skip high-poly tables/tunnels)
       const shouldCast = !state.lowGraphics && (spec.key === 'gate' || spec.key === 'ubosot' || spec.key === 'salaBuddha');
-      mergeStaticMeshesByMaterial(modelRoot, spec.animate ? gltf.animations : [], shouldCast);
+      const animRoots = mergeStaticMeshesByMaterial(modelRoot, spec.animate ? gltf.animations : [], shouldCast);
+      if (spec.key === 'concertStage') {
+        perfLodRefs.concertAnimNodes = animRoots;
+      } else if (spec.key === 'krathongTables') {
+        perfLodRefs.krathongTablesRoot = modelRoot;
+      }
       modelRoot.traverse((obj) => {
         if (obj.isMesh) {
           obj.castShadow = shouldCast;
@@ -1631,7 +1778,11 @@ async function loadAllModels() {
           const action = mixer.clipAction(clip);
           action.play();
         }
-        mixers.push(mixer);
+        mixers.push({
+          mixer,
+          pos: new THREE.Vector3(...spec.pos),
+          maxDist: spec.key === 'concertStage' ? 62 : 38
+        });
       }
 
       perFileProgress[i] = 1;
@@ -3565,18 +3716,28 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
   }
 }
 
+let frameCounter = 0;
+let fpsFrames = 0;
+let fpsLastSampleAt = performance.now();
+let measuredFps = 0;
+
 function updateAtmosphere(dt, elapsed) {
-  // Update GLB AnimationMixers (concert_stage & krathong_tables)
-  for (const mixer of mixers) {
-    mixer.update(dt);
+  // Distance-culled GLB AnimationMixers (skip concert_stage/krathong_tables updates when far away)
+  for (const entry of mixers) {
+    if (camera.position.distanceTo(entry.pos) <= entry.maxDist) {
+      entry.mixer.update(dt);
+    }
   }
 
+  const runHeavyAtmosphere = !state.lowGraphics || frameCounter % 2 === 0;
+  const effDt = state.lowGraphics ? dt * 2 : dt;
+
   // Sky lanterns drift upward
-  if (skyRefs.lanterns) {
+  if (skyRefs.lanterns && runHeavyAtmosphere) {
     const activeCount = skyRefs.lanterns.count;
     for (let i = 0; i < activeCount; i++) {
       const m = skyRefs.lanternMeta[i];
-      m.y += m.speed * dt;
+      m.y += m.speed * effDt;
       if (m.y > 68) {
         m.y = 10;
       }
@@ -3597,19 +3758,22 @@ function updateAtmosphere(dt, elapsed) {
   }
 
   // Garden hanging lanterns & fireflies + central lantern plaza animations
-  if (gardenState) {
-    updateTempleGardens(gardenState, dt, elapsed);
+  if (gardenState && runHeavyAtmosphere) {
+    updateTempleGardens(gardenState, effDt, elapsed);
   }
-  if (lanternPlazaState) {
-    updateLanternPlaza(lanternPlazaState, dt, elapsed);
+  if (lanternPlazaState && runHeavyAtmosphere) {
+    updateLanternPlaza(lanternPlazaState, effDt, elapsed);
   }
-  if (frontRoadState) {
+  if (frontRoadState && frontRoadState.root.visible) {
     updateFrontRoad(frontRoadState, dt);
   }
+  updateMobileZoneCulling();
 }
 
 function animate() {
   requestAnimationFrame(animate);
+  frameCounter++;
+  fpsFrames++;
   const dt = Math.min(0.05, clock.getDelta());
   const elapsed = clock.elapsedTime;
 
@@ -3633,7 +3797,7 @@ function animate() {
     updateLocalPlayer(dt);
     updatePlayersAnimationAndLabels(dt, elapsed);
     const nowMs = performance.now();
-    if (nowMs - lastMinimapAt >= 100) {
+    if (nowMs - lastMinimapAt >= 120) {
       lastMinimapAt = nowMs;
       drawMinimap();
     }
@@ -3641,11 +3805,22 @@ function animate() {
 
   updateAtmosphere(dt, elapsed);
   renderer.render(scene, camera);
-  window.__RENDER_STATS__ = {
-    calls: renderer.info.render.calls,
-    triangles: renderer.info.render.triangles,
-    geometries: renderer.info.memory.geometries
-  };
+
+  const nowFps = performance.now();
+  if (nowFps - fpsLastSampleAt >= 1000) {
+    measuredFps = Math.round((fpsFrames * 1000) / (nowFps - fpsLastSampleAt));
+    fpsFrames = 0;
+    fpsLastSampleAt = nowFps;
+    const stats = {
+      fps: measuredFps,
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      geometries: renderer.info.memory.geometries,
+      lowGraphics: state.lowGraphics
+    };
+    window.__RENDER_STATS__ = stats;
+    document.body.dataset.renderStats = JSON.stringify(stats);
+  }
 }
 
 // ============================================================================
@@ -3669,6 +3844,16 @@ async function bootstrap() {
   buildSpecialZones();
   gardenState = buildTempleGardens(scene, addCollisionBox, state.lowGraphics);
   lanternPlazaState = buildLanternPlaza(scene, addCollisionBox, state.lowGraphics);
+  // Batch static stone/bamboo/pillar geometry inside lantern plaza (~90 -> ~12 draw calls)
+  mergeStaticMeshesByMaterial(
+    lanternPlazaState.root,
+    [],
+    false,
+    [
+      ...lanternPlazaState.swayingLanterns.map((s) => s.pivot),
+      lanternPlazaState.brazierFlame
+    ]
+  );
   frontRoadState = buildFrontRoad(scene, state.lowGraphics);
   setupWorldCollisions();
 

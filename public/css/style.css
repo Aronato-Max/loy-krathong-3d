@@ -1345,6 +1345,27 @@ dialog::backdrop {
   border-color: var(--gold);
 }
 
+/* Disable expensive live GPU backdrop blur passes in Low Graphics (Mobile Turbo) mode */
+body.low-gfx .glass-panel,
+body.low-gfx .hud-pill,
+body.low-gfx .hud-btn,
+body.low-gfx .minimap-card,
+body.low-gfx .chat-panel,
+body.low-gfx .desktop-controls-hint,
+body.low-gfx .toast-banner,
+body.low-gfx .festive-dialog,
+body.low-gfx .floating-label > div {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.low-gfx .hud-pill,
+body.low-gfx .hud-btn,
+body.low-gfx .minimap-card,
+body.low-gfx .chat-panel {
+  background: rgba(15, 23, 42, 0.9);
+}
+
 @media (max-width: 560px) {
   .lantern-pick-row {
     grid-template-columns: 1fr;

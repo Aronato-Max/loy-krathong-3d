@@ -527,6 +527,9 @@ export function setLanternPlazaGraphicsMode(plazaState, lowGraphics) {
     mesh.castShadow = !low;
     mesh.receiveShadow = true;
   }
+  if (plazaState.plazaLight) {
+    plazaState.plazaLight.visible = !low;
+  }
 }
 
 export function updateLanternPlaza(plazaState, _dt, elapsed) {
