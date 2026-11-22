@@ -1,0 +1,373 @@
+[
+  {
+    "id": "s-57WVjG1uWxenxFAAAA",
+    "nickname": "ทดสอบลอยกระทง",
+    "avatar": {
+      "gender": "male",
+      "outfit": "thai",
+      "shirtColor": "#d97706",
+      "pantsColor": "#7c2d12",
+      "skinColor": "#e0ac69",
+      "hairColor": "#1c1917"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T02:15:35.424Z"
+  },
+  {
+    "id": "WNd-tZcZ99htPZFIAAAA",
+    "nickname": "ทดสอบลอยกระทง",
+    "avatar": {
+      "gender": "male",
+      "outfit": "thai",
+      "shirtColor": "#d97706",
+      "pantsColor": "#7c2d12",
+      "skinColor": "#e0ac69",
+      "hairColor": "#1c1917"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T02:17:01.523Z"
+  },
+  {
+    "id": "3zQFiFiCfI2gngl4AAAB",
+    "nickname": "ทดสอบลอยกระทง",
+    "avatar": {
+      "gender": "male",
+      "outfit": "thai",
+      "shirtColor": "#d97706",
+      "pantsColor": "#7c2d12",
+      "skinColor": "#e0ac69",
+      "hairColor": "#1c1917"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T02:17:32.486Z"
+  },
+  {
+    "id": "GA2GEn1NRE6FPceLAAAC",
+    "nickname": "เเ",
+    "avatar": {
+      "gender": "male",
+      "outfit": "fair",
+      "shirtColor": "#fdf5ed",
+      "pantsColor": "#4d127d",
+      "skinColor": "#e0ac69",
+      "hairColor": "#59351d"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T02:23:40.377Z"
+  },
+  {
+    "id": "GrnlD3NMGCm1tQYwAAAA",
+    "nickname": "ก",
+    "avatar": {
+      "gender": "male",
+      "outfit": "thai",
+      "shirtColor": "#d97706",
+      "pantsColor": "#7c2d12",
+      "skinColor": "#e0ac69",
+      "hairColor": "#1c1917"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T02:43:31.866Z"
+  },
+  {
+    "id": "JLRQFV2DKMf0pD7HAAAB",
+    "nickname": "เเ",
+    "avatar": {
+      "gender": "male",
+      "outfit": "fair",
+      "shirtColor": "#fdf5ed",
+      "pantsColor": "#4d127d",
+      "skinColor": "#e0ac69",
+      "hairColor": "#59351d"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T02:58:19.298Z"
+  },
+  {
+    "id": "fgdHqWh13kRNcTWFAAAC",
+    "nickname": "ฑ",
+    "avatar": {
+      "gender": "male",
+      "outfit": "thai",
+      "shirtColor": "#d97706",
+      "pantsColor": "#7c2d12",
+      "skinColor": "#e0ac69",
+      "hairColor": "#1c1917"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T04:38:07.869Z"
+  },
+  {
+    "id": "U0vjHb29GA1Gj5fYAAAA",
+    "nickname": "ฑ",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T04:40:28.450Z"
+  },
+  {
+    "id": "u6uS89VfgTAOBeHIAAAB",
+    "nickname": "ก",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": true,
+    "registeredAt": "2026-11-21T04:40:30.932Z"
+  },
+  {
+    "id": "zuHUrqXcwz1LqKmyAAAC",
+    "nickname": "ทดสอบอนิเมะ",
+    "avatar": {
+      "avatarId": "Avatar_ChibiGirlTwintails"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T04:41:31.914Z"
+  },
+  {
+    "id": "QttlP9SHBXo0eRkUAAAD",
+    "nickname": "ฑ",
+    "avatar": {
+      "avatarId": "Avatar_BoySport"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T04:42:24.510Z"
+  },
+  {
+    "id": "lo5rMU0ptcvBEPM_AAAE",
+    "nickname": "ทดสอบกำแพงวัด",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T04:50:24.054Z"
+  },
+  {
+    "id": "qUF5NHvo4gG0SmMGAAAF",
+    "nickname": "ว",
+    "avatar": {
+      "avatarId": "Avatar_ChibiManSuit"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T04:50:43.528Z"
+  },
+  {
+    "id": "gen7UA32ebPFGSOkAAAG",
+    "nickname": "กดกด",
+    "avatar": {
+      "avatarId": "Avatar_GirlBeret"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T04:58:29.310Z"
+  },
+  {
+    "id": "UvBGJ8VzrOG8qImzAAAH",
+    "nickname": "ทดสอบแก้ไข",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T05:01:31.693Z"
+  },
+  {
+    "id": "SWhh93uN3Kc5AZmAAAAI",
+    "nickname": "กดกด",
+    "avatar": {
+      "avatarId": "Avatar_GirlBeret"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-21T05:20:48.451Z"
+  },
+  {
+    "id": "sgHbStQHDDaWl9KLAAAA",
+    "nickname": "1",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T05:20:40.164Z"
+  },
+  {
+    "id": "ru92KJ-Edwm8mje5AAAB",
+    "nickname": "ปกก",
+    "avatar": {
+      "avatarId": "Avatar_GirlBeret"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T05:25:14.650Z"
+  },
+  {
+    "id": "E695xGM_mwTBD-D1AAAC",
+    "nickname": "ปกก",
+    "avatar": {
+      "avatarId": "Avatar_GirlBeret"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T05:25:16.783Z"
+  },
+  {
+    "id": "4wJlKCxzATQ0UOIzAAAD",
+    "nickname": "ปกก",
+    "avatar": {
+      "avatarId": "Avatar_GirlBeret"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T05:25:17.440Z"
+  },
+  {
+    "id": "_L3H-1jecLH5j-BAAAAE",
+    "nickname": "ตรวจรถมอไซค์",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T05:31:02.489Z"
+  },
+  {
+    "id": "8zp27SMeK93PdmnoAAAF",
+    "nickname": "ไ",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T05:33:05.755Z"
+  },
+  {
+    "id": "mdW6LOfg5WiUqGCtAAAG",
+    "nickname": "ตรวจสวนต้นไม้",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T06:09:42.884Z"
+  },
+  {
+    "id": "4FFyXP8e3uzydCj-AAAH",
+    "nickname": "a",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T06:21:04.282Z"
+  },
+  {
+    "id": "RWlryP3l-x-1LUWTAAAI",
+    "nickname": "A",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T06:31:23.253Z"
+  },
+  {
+    "id": "OfRjycigW5so_wFYAAAJ",
+    "nickname": "ฟ",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T06:41:30.538Z"
+  },
+  {
+    "id": "1B4yTHl1zk-7InByAAAA",
+    "nickname": "A",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T06:56:43.053Z"
+  },
+  {
+    "id": "xTPealXOESbm-26yAAAB",
+    "nickname": "ฟ",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T06:56:44.542Z"
+  },
+  {
+    "id": "UIORVpaV0i2MehJ4AAAC",
+    "nickname": "ทดสอบโคมลอย",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T06:58:24.590Z"
+  },
+  {
+    "id": "Ry8LxUjj1Uy51w0yAAAD",
+    "nickname": "ตรวจถนน4เลน",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T07:28:53.163Z"
+  },
+  {
+    "id": "T1BZoqplj4xi2YQsAAAE",
+    "nickname": "ตรวจมอไซค์ถนน",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T07:41:52.312Z"
+  },
+  {
+    "id": "GIHgqaMzcRFEvC0BAAAF",
+    "nickname": "5",
+    "avatar": {
+      "avatarId": "Avatar_ChibiBoyRed"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T07:49:51.506Z"
+  },
+  {
+    "id": "MJOjP3jHBfYsd6RYAAAG",
+    "nickname": "ด",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T08:09:59.034Z"
+  },
+  {
+    "id": "8ezoCVRpJNujRiUgAAAH",
+    "nickname": "55",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": true,
+    "registeredAt": "2026-11-22T08:29:32.524Z"
+  },
+  {
+    "id": "uz2_-MINwRXzku70AAAA",
+    "nickname": "ด",
+    "roomId": "room-1",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T08:44:04.101Z"
+  },
+  {
+    "id": "NpuThVS-Yk01Xf3eAAAB",
+    "nickname": "ทดสอบออนไลน์",
+    "roomId": "room-1",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T08:46:20.546Z"
+  },
+  {
+    "id": "oylqqzf_oU6w06uJAAAC",
+    "nickname": "A",
+    "roomId": "room-1",
+    "avatar": {
+      "avatarId": "Avatar_BoyCargo"
+    },
+    "lowGraphics": false,
+    "registeredAt": "2026-11-22T09:26:30.309Z"
+  }
+]

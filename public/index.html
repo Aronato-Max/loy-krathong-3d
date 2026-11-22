@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>งานลอยกระทง 3 มิติ (23–24 พ.ย. 69) — Multiplayer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/build/three.module.min.js",
+        "three/addons/": "/vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- 3D World Canvas & Floating 3D Labels -->
+  <canvas id="world-canvas" aria-label="โลกเสมือนจริงงานลอยกระทง 3 มิติ"></canvas>
+  <div id="labels-layer" aria-hidden="true"></div>
+
+  <!-- 1. Loading Screen Overlay -->
+  <section id="loading-screen" class="overlay-screen" aria-live="polite">
+    <div class="loading-card glass-panel">
+      <div class="festival-badge">🌕 23–24 พฤศจิกายน 2569</div>
+      <h1>งานลอยกระทง 3 มิติ</h1>
+      <p class="subtitle">กำลังเตรียมสถานที่ งานวัด เวทีคอนเสิร์ต และสายน้ำแห่งคำอธิษฐาน...</p>
+      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="loading-progressbar">
+        <div id="loading-bar-fill" class="progress-fill"></div>
+      </div>
+      <div class="loading-meta">
+        <span id="loading-status">กำลังเริ่มต้นระบบ 3D...</span>
+        <span id="loading-percent">0%</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Lobby & Avatar Customization Overlay -->
+  <section id="lobby-overlay" class="overlay-screen hidden" aria-labelledby="lobby-title">
+    <div class="lobby-card glass-panel">
+      <header class="lobby-header">
+        <div>
+          <span class="festival-badge">🏮 Multiplayer Real-time 3D</span>
+          <h1 id="lobby-title">ลงทะเบียน &amp; แต่งตัวละครเข้างานลอยกระทง</h1>
+          <p class="subtitle">23–24 พ.ย. 69 • เดินเที่ยวงานวัด ฟังคอนเสิร์ต ไหว้พระ และลอยกระทงร่วมกัน</p>
+        </div>
+      </header>
+
+      <div class="lobby-body">
+        <!-- 360° Avatar Preview -->
+        <div class="preview-column">
+          <div class="preview-stage">
+            <canvas id="preview-canvas"></canvas>
+            <button type="button" id="btn-preview-wave" class="preview-wave-btn" title="ลองท่าโบกมือทักทาย">
+              👋 ลองโบกมือ
+            </button>
+            <div class="preview-hint">ลากเพื่อหมุนตัวละคร 360°</div>
+          </div>
+          <div id="preview-selected-name" class="preview-selected-name">หนุ่มคาร์โก้</div>
+        </div>
+
+        <!-- Character Selection & Registration Form -->
+        <form id="lobby-form" class="custom-column">
+          <div class="form-group">
+            <label for="input-nickname">ชื่อเล่น (แสดงบนหัวตัวละคร)</label>
+            <input id="input-nickname" name="nickname" type="text" maxlength="20" placeholder="เช่น น้องใบตอง, พี่ขุนแผน" required autocomplete="nickname">
+          </div>
+
+          <div class="form-group">
+            <label for="select-room">เลือกลานงาน (ห้องละไม่เกิน 35 คน เพื่อความลื่นไหล)</label>
+            <select id="select-room" name="roomId" class="room-select">
+              <option value="auto" selected>✨ เข้าห้องว่างอัตโนมัติ (แนะนำ)</option>
+              <option value="room-1">🏮 ลานงาน 1</option>
+              <option value="room-2">🏮 ลานงาน 2</option>
+              <option value="room-3">🏮 ลานงาน 3</option>
+              <option value="room-4">🏮 ลานงาน 4</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <span class="field-label">เลือกตัวละคร 3 มิติ (10 แบบ)</span>
+            <div id="avatar-grid" class="avatar-grid" role="radiogroup" aria-label="เลือกตัวละคร"></div>
+          </div>
+
+          <div class="toggles-group">
+            <label class="checkbox-row">
+              <input type="checkbox" id="opt-mic" checked>
+              <span>ขออนุญาตใช้ไมโครโฟน (พูดคุยด้วยเสียงใกล้เคียงแบบ Push-to-Talk)</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="opt-low-gfx">
+              <span>โหมดประหยัดกราฟิก (แนะนำสำหรับมือถือเพื่อความลื่นไหล)</span>
+            </label>
+          </div>
+
+          <button type="submit" id="btn-enter-world" class="btn-primary btn-large">
+            เข้าสู่งานลอยกระทง 🏮
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. In-Game HUD -->
+  <div id="hud" class="hidden">
+    <!-- Top-Left Bar -->
+    <div class="hud-top-left">
+      <div class="hud-pill player-status-pill">
+        <span class="status-dot"></span>
+        <strong id="hud-nickname">ผู้ร่วมงาน</strong>
+        <span class="divider">•</span>
+        <span id="hud-room-name">ลานงาน 1</span>
+        <span class="divider">•</span>
+        <span id="hud-online-count">ออนไลน์ 1 คน</span>
+      </div>
+      <div class="hud-pill krathong-status-pill" id="hud-held-krathong">
+        <span>🪷 ยังไม่ได้ถือกระทง</span>
+      </div>
+      <div class="hud-toolbar">
+        <button type="button" id="btn-music-toggle" class="hud-btn" aria-pressed="true" title="เปิด/ปิดเสียงเพลงคอนเสิร์ต">
+          🎵 <span class="btn-label">เพลง: เปิด</span>
+        </button>
+        <button type="button" id="btn-gfx-toggle" class="hud-btn" aria-pressed="false" title="สลับโหมดประหยัดกราฟิก">
+          ⚙️ <span class="btn-label">กราฟิก: ปกติ</span>
+        </button>
+        <button type="button" id="btn-mic-setup" class="hud-btn" title="สถานะไมโครโฟน">
+          🎤 <span id="mic-state-text" class="btn-label">ไมค์: พร้อม</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Top-Right Minimap (Navigation Only - No Teleport) -->
+    <div id="minimap-container" class="hud-top-right">
+      <button type="button" id="minimap-toggle" class="minimap-card" aria-expanded="false" aria-label="แผนที่นำทาง (แตะเพื่อขยายหรือย่อ)">
+        <div class="minimap-header">
+          <span>🗺️ แผนผังงาน</span>
+          <span id="minimap-zoom-hint">แตะขยาย</span>
+        </div>
+        <canvas id="minimap-canvas" width="220" height="220"></canvas>
+        <div class="minimap-legend">
+          <span><i class="dot-self"></i>คุณ</span>
+          <span><i class="dot-peer"></i>เพื่อน</span>
+          <span><i class="dot-pond"></i>สระน้ำ</span>
+        </div>
+      </button>
+    </div>
+
+    <!-- Center Toast & Interaction Prompt -->
+    <div id="toast-banner" class="toast-banner hidden" role="status" aria-live="polite"></div>
+
+    <div id="interact-prompt-wrap" class="interact-wrap hidden">
+      <button type="button" id="btn-interact" class="btn-interact">
+        <span class="key-cap">E</span>
+        <span id="interact-label">โต้ตอบ</span>
+      </button>
+    </div>
+
+    <!-- Bottom-Left: Mobile Joystick + Sprint / Desktop Hint -->
+    <div class="hud-bottom-left">
+      <div class="desktop-controls-hint" id="desktop-hint">
+        <span><b>WASD / ลูกศร</b> เดิน</span>
+        <span><b>Shift</b> วิ่ง</span>
+        <span><b>ลากเมาส์</b> หมุนกล้อง</span>
+        <span><b>Scroll</b> ซูม</span>
+        <span><b>E</b> โต้ตอบ</span>
+        <span><b>H</b> โบกมือ</span>
+        <span><b>V</b> กดค้างพูด</span>
+      </div>
+
+      <div class="touch-controls" id="touch-controls">
+        <div id="joystick-zone" class="joystick-zone" aria-label="จอยสติ๊กควบคุมทิศทาง">
+          <div class="joystick-base">
+            <div id="joystick-knob" class="joystick-knob"></div>
+          </div>
+        </div>
+        <button type="button" id="btn-sprint" class="sprint-btn" aria-pressed="false">
+          🏃 วิ่ง
+        </button>
+      </div>
+    </div>
+
+    <!-- Bottom-Right: Wave, Push-to-Talk & Chat -->
+    <div class="hud-bottom-right">
+      <div class="voice-action-row">
+        <button type="button" id="btn-wave" class="wave-btn" title="โบกมือทักทายเพื่อน (H)">
+          <span aria-hidden="true">👋</span>
+          <span class="wave-text">โบกมือ (H)</span>
+        </button>
+        <button type="button" id="btn-ptt" class="ptt-btn" aria-pressed="false" title="กดค้างหรือกด V เพื่อพูดคุยด้วยเสียงใกล้เคียง">
+          <span class="ptt-icon" aria-hidden="true">🎙️</span>
+          <span class="ptt-text">กดค้างพูด (V)</span>
+        </button>
+      </div>
+
+      <div id="chat-panel" class="chat-panel">
+        <div class="chat-header">
+          <span>💬 แชตงานลอยกระทง</span>
+          <button type="button" id="btn-chat-toggle" class="chat-toggle-btn" aria-expanded="true" aria-label="ย่อหรือขยายแชต">▾</button>
+        </div>
+        <div id="chat-body" class="chat-body">
+          <ul id="chat-messages" class="chat-messages" aria-live="polite"></ul>
+          <form id="chat-form" class="chat-form">
+            <input id="chat-input" type="text" maxlength="160" placeholder="พิมพ์คุยกับเพื่อนในงาน..." autocomplete="off">
+            <button type="submit" class="btn-send">ส่ง</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Native Interactive Modal Dialogs -->
+  <!-- 4a. Krathong Shop Dialog -->
+  <dialog id="dialog-krathong-shop" class="festive-dialog" closedby="any" aria-labelledby="title-krathong-shop">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-krathong-shop">🪷 ซุ้มบูชากระทง</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-krathong-shop" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <p class="dialog-desc">เลือกกระทงที่ชอบเพื่อถือไว้ในมือ แล้วเดินไปที่ <b>ท่าน้ำจุดลอยกระทง</b> เพื่ออธิษฐานและปล่อยลงสระน้ำ</p>
+      <div class="krathong-choices">
+        <button type="button" class="choice-card" data-krathong-type="banana" autofocus>
+          <span class="choice-emoji">🌿</span>
+          <strong>กระทงใบตอง</strong>
+          <small>งานฝีมือกลีบใบตองประณีต ประดับดอกดาวเรือง</small>
+        </button>
+        <button type="button" class="choice-card" data-krathong-type="lotus">
+          <span class="choice-emoji">🪷</span>
+          <strong>กระทงดอกบัว</strong>
+          <small>กลีบบัวสีชมพูเบ่งบาน งดงามอ่อนช้อยใต้แสงจันทร์</small>
+        </button>
+        <button type="button" class="choice-card" data-krathong-type="bread">
+          <span class="choice-emoji">🍞</span>
+          <strong>กระทงขนมปัง</strong>
+          <small>รักษ์โลก ย่อยสลายง่าย เป็นอาหารปลาในสระน้ำ</small>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 4b. Float Krathong Dialog -->
+  <dialog id="dialog-float-krathong" class="festive-dialog" closedby="any" aria-labelledby="title-float-krathong">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-float-krathong">🌊 ท่าน้ำจุดลอยกระทง</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-float-krathong" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <p id="float-held-info" class="dialog-desc">ตั้งจิตอธิษฐานแล้วปล่อยกระทงลงสู่สายน้ำ</p>
+      <form id="float-krathong-form" class="dialog-form">
+        <div id="float-quick-pick" class="quick-pick hidden">
+          <span class="field-label">คุณยังไม่ได้ถือกระทง เลือกแบบด่วนได้หรือไปที่ซุ้มบูชากระทง:</span>
+          <div class="quick-pick-row">
+            <label><input type="radio" name="quickKrathong" value="banana"> 🌿 ใบตอง</label>
+            <label><input type="radio" name="quickKrathong" value="lotus" checked> 🪷 ดอกบัว</label>
+            <label><input type="radio" name="quickKrathong" value="bread"> 🍞 ขนมปัง</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="input-wish">คำอธิษฐาน</label>
+          <textarea id="input-wish" rows="3" maxlength="120" placeholder="เช่น ขอให้ครอบครัวมีความสุข สุขภาพแข็งแรง สมหวังตลอดปี..." autofocus></textarea>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn-secondary" data-close-dialog="dialog-float-krathong">ยกเลิก</button>
+          <button type="submit" class="btn-primary">ปล่อยกระทงลงน้ำ 🪷</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- 4c. Release Sky Lantern Dialog -->
+  <dialog id="dialog-release-lantern" class="festive-dialog" closedby="any" aria-labelledby="title-release-lantern">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-release-lantern">🏮 ลานปล่อยโคมลอย</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-release-lantern" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <p class="dialog-desc">เลือกสีโคมลอยและเขียนคำอธิษฐาน โคมของคุณจะลอยขึ้นฟ้าให้เพื่อนทุกคนในงานเห็นพร้อมกันแบบ Real-time!</p>
+      <form id="release-lantern-form" class="dialog-form">
+        <div class="lantern-pick">
+          <span class="field-label">เลือกสีโคมลอย:</span>
+          <div class="lantern-pick-row">
+            <label class="lantern-option"><input type="radio" name="lanternColor" value="gold" checked> <span>🌕 โคมทองมงคล</span></label>
+            <label class="lantern-option"><input type="radio" name="lanternColor" value="pink"> <span>🌸 โคมชมพูความรัก</span></label>
+            <label class="lantern-option"><input type="radio" name="lanternColor" value="white"> <span>🤍 โคมขาวบริสุทธิ์</span></label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="input-lantern-wish">คำอธิษฐาน</label>
+          <textarea id="input-lantern-wish" rows="3" maxlength="120" placeholder="เช่น ขอให้ชีวิตสว่างไสว สมหวังในทุกสิ่งที่ตั้งใจ..." autofocus></textarea>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn-secondary" data-close-dialog="dialog-release-lantern">ยกเลิก</button>
+          <button type="submit" class="btn-primary">ปล่อยโคมลอยขึ้นฟ้า 🏮</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- 4d. Sala Buddha Blessing Dialog -->
+  <dialog id="dialog-buddha" class="festive-dialog" closedby="any" aria-labelledby="title-buddha">
+    <div class="dialog-inner buddha-inner">
+      <div class="dialog-header">
+        <h2 id="title-buddha">🙏 ศาลาพระพุทธรูป</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-buddha" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <div class="buddha-card">
+        <div class="buddha-emblem" aria-hidden="true">🪷✨🙏✨🪷</div>
+        <h3>คำอวยพรอันเป็นสิริมงคล</h3>
+        <p id="buddha-blessing-text" class="blessing-text"></p>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="btn-pray-again" class="btn-secondary" autofocus>รับพรเพิ่มเติม 🙏</button>
+        <button type="button" class="btn-primary" data-close-dialog="dialog-buddha">สาธุ ปิดหน้าต่าง</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/config.js"></script>
+  <script src="/vendor/socket.io.min.js"></script>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

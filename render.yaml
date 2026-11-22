@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: loy-krathong-3d-server
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production

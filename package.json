@@ -1,0 +1,15 @@
+{
+  "name": "loy-krathong-3d",
+  "version": "1.0.0",
+  "description": "งานลอยกระทง 3 มิติ (23-24 พ.ย. 69) Multiplayer Real-time 3D Web Application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "compression": "^1.8.2",
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1",
+    "three": "0.170.0"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+models_original_backup/
+*.glb
+!public/models/*.glb
+messageImage_*.jpg
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db
