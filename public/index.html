@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=12">
+  <link rel="stylesheet" href="/css/style.css?v=13">
   <script type="importmap">
     {
       "imports": {
@@ -358,11 +358,52 @@
     </div>
   </dialog>
 
+  <!-- 4f. Photo Booth Mode Controls, Shutter Flash & Captured Photo Preview -->
+  <div id="photo-flash" class="photo-flash hidden" aria-hidden="true"></div>
+  <div id="photo-mode-bar" class="photo-mode-bar hidden" role="region" aria-label="โหมดถ่ายรูปหน้าซุ้ม">
+    <div class="photo-mode-badge">📸 โหมดถ่ายรูป • #งานวัดไฮโซ โอ้โห ท่าช้าง</div>
+    <div class="photo-mode-actions">
+      <button type="button" id="btn-photo-wave" class="photo-btn" aria-label="โบกมือโพสท่า">
+        <span aria-hidden="true">👋</span><span>โบกมือ</span>
+      </button>
+      <button type="button" id="btn-photo-zoom" class="photo-btn" aria-label="สลับระยะกล้องใกล้หรือกว้าง">
+        <span aria-hidden="true">🔍</span><span id="photo-zoom-label">มุมกว้าง</span>
+      </button>
+      <button type="button" id="btn-photo-capture" class="photo-shutter-btn" aria-label="กดถ่ายรูปและบันทึกเป็นไฟล์ภาพ">
+        <span class="shutter-ring" aria-hidden="true">📸</span>
+      </button>
+      <button type="button" id="btn-photo-names" class="photo-btn" aria-pressed="false" aria-label="ซ่อนหรือแสดงชื่อบนหัว">
+        <span aria-hidden="true">🏷️</span><span id="photo-names-label">ซ่อนชื่อ</span>
+      </button>
+      <button type="button" id="btn-photo-exit" class="photo-btn photo-btn-exit" aria-label="ออกจากโหมดถ่ายรูป">
+        <span aria-hidden="true">✕</span><span>ออก</span>
+      </button>
+    </div>
+  </div>
+
+  <dialog id="dialog-photo-preview" class="festive-dialog photo-preview-dialog" closedby="any" aria-labelledby="title-photo-preview">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-photo-preview">📸 ภาพถ่ายหน้าซุ้ม #งานวัดไฮโซ</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-photo-preview" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <div class="photo-preview-frame">
+        <img id="photo-preview-img" class="photo-preview-img" alt="ภาพถ่ายหน้าซุ้มงานวัดไฮโซ โอ้โห ท่าช้าง">
+      </div>
+      <p class="photo-preview-hint">กดปุ่มด้านล่างเพื่อดาวน์โหลด หรือกดค้างที่รูปภาพเพื่อบันทึกลงอัลบั้มมือถือ</p>
+      <div class="dialog-actions photo-preview-actions">
+        <button type="button" id="btn-photo-retake" class="btn-secondary">📸 ถ่ายใหม่</button>
+        <button type="button" id="btn-photo-share" class="btn-secondary hidden">📤 แชร์ / บันทึก</button>
+        <a id="btn-photo-download" class="btn-primary photo-download-link" download="loy-krathong-thachang.png">💾 บันทึกรูป (.png)</a>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Hidden DOM container for mobile-safe HTMLAudioElement playback (music + WebRTC voice) -->
   <div id="audio-elements-sink" class="sr-audio-sink" aria-hidden="true"></div>
 
-  <script src="/config.js?v=12"></script>
+  <script src="/config.js?v=13"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=12"></script>
+  <script type="module" src="/js/app.js?v=13"></script>
 </body>
 </html>

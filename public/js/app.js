@@ -23,6 +23,12 @@ import {
   drawFrontRoadMinimap,
   upgradeRoadMotorcycles
 } from './front-road.js';
+import {
+  PHOTO_BOOTH_CONFIG,
+  buildPhotoBooth,
+  setPhotoBoothGraphicsMode,
+  drawPhotoBoothMinimap
+} from './photo-booth.js';
 
 // Backend API/Socket origin (empty = same origin; set via /config.js when hosting public/ on Cloudflare Pages)
 const SERVER_URL = (window.LOY_KRATHONG_CONFIG?.serverUrl || '').replace(/\/+$/, '');
@@ -134,9 +140,17 @@ const INTERACT_ZONES = [
     id: 'krathong-shop',
     x: 30.8,
     z: -19.1,
-    radius: 4.8,
+    radius: 4.5,
     label: 'เลือกบูชากระทงฟรี (3 แบบ)',
     dialogId: 'dialog-krathong-shop'
+  },
+  {
+    id: 'photo-booth',
+    x: PHOTO_BOOTH_CONFIG.interactX,
+    z: PHOTO_BOOTH_CONFIG.interactZ,
+    radius: PHOTO_BOOTH_CONFIG.interactRadius,
+    label: 'ถ่ายรูปที่ซุ้ม #งานวัดไฮโซ 📸',
+    dialogId: null
   },
   {
     id: 'float-pier',
@@ -262,7 +276,22 @@ const dom = {
   btnStageNext: document.getElementById('btn-stage-next'),
   stagePlaylistList: document.getElementById('stage-playlist-list'),
   audioSink: document.getElementById('audio-elements-sink'),
-  btnAudioUnlock: document.getElementById('btn-audio-unlock')
+  btnAudioUnlock: document.getElementById('btn-audio-unlock'),
+
+  photoFlash: document.getElementById('photo-flash'),
+  photoModeBar: document.getElementById('photo-mode-bar'),
+  btnPhotoWave: document.getElementById('btn-photo-wave'),
+  btnPhotoZoom: document.getElementById('btn-photo-zoom'),
+  photoZoomLabel: document.getElementById('photo-zoom-label'),
+  btnPhotoCapture: document.getElementById('btn-photo-capture'),
+  btnPhotoNames: document.getElementById('btn-photo-names'),
+  photoNamesLabel: document.getElementById('photo-names-label'),
+  btnPhotoExit: document.getElementById('btn-photo-exit'),
+  dialogPhotoPreview: document.getElementById('dialog-photo-preview'),
+  photoPreviewImg: document.getElementById('photo-preview-img'),
+  btnPhotoRetake: document.getElementById('btn-photo-retake'),
+  btnPhotoShare: document.getElementById('btn-photo-share'),
+  btnPhotoDownload: document.getElementById('btn-photo-download')
 };
 
 const state = {
@@ -282,6 +311,9 @@ const state = {
   isSpeaking: false,
   voiceLockedOn: false,
   musicEnabled: true,
+  photoMode: false,
+  photoZoom: 'wide',
+  photoShowNames: false,
   minimapHidden: window.matchMedia('(max-width: 720px)').matches || window.matchMedia('(pointer: coarse)').matches,
   minimapExpanded: false,
   chatCollapsed: window.matchMedia('(max-width: 640px)').matches,
@@ -325,6 +357,7 @@ camera.position.set(0, 5, 67);
 let gardenState = null;
 let lanternPlazaState = null;
 let frontRoadState = null;
+let photoBoothState = null;
 const lambertMatCache = new WeakMap();
 
 function toFastLambertMaterial(stdMat) {
@@ -508,6 +541,9 @@ function applyGraphicsMode(low) {
   }
   if (frontRoadState) {
     setFrontRoadGraphicsMode(frontRoadState, state.lowGraphics);
+  }
+  if (photoBoothState) {
+    setPhotoBoothGraphicsMode(photoBoothState, state.lowGraphics);
   }
   applyPerfLodMode(state.lowGraphics);
   if (dom.btnGfxToggle) {
@@ -4274,9 +4310,10 @@ function drawMinimap() {
   minimapCtx.fillStyle = '#f59e0b';
   minimapCtx.fillRect(mapX(-4.5), mapY(52.5), mapW(9), mapH(3));
 
-  // Temple fair gardens (SE, SW/Mid-West & NE trees) & central lantern plaza
+  // Temple fair gardens (SE, SW/Mid-West & NE trees), central lantern plaza & photo booth
   drawGardenMinimap(minimapCtx, mapX, mapY);
   drawLanternPlazaMinimap(minimapCtx, mapX, mapY, mapW);
+  drawPhotoBoothMinimap(minimapCtx, mapX, mapY, mapW, mapH);
 
   // Remote online players (blue dots)
   for (const [id, p] of state.players) {
@@ -4386,6 +4423,8 @@ function openZoneDialog(zone) {
   } else if (zone.id === 'concert-playlist') {
     renderStagePlaylistUI();
     dom.dialogStagePlaylist.showModal();
+  } else if (zone.id === 'photo-booth') {
+    enterPhotoMode();
   } else if (zone.id === 'lantern-plaza') {
     dom.dialogReleaseLantern.showModal();
   } else if (zone.id === 'sala-buddha') {
@@ -4481,6 +4520,209 @@ if (dom.btnStageNext) {
   dom.btnStageNext.addEventListener('click', () => {
     if (!socket) return;
     socket.emit('stage:selectTrack', { step: 1 });
+  });
+}
+
+// ============================================================================
+// PHOTO BOOTH CAMERA MODE (Auto-Framed Front Portrait + PNG Capture/Share)
+// ============================================================================
+
+let lastPhotoBlobUrl = null;
+let lastPhotoBlob = null;
+
+function playShutterSound() {
+  const ctx = audioEngine.ctx;
+  if (!ctx || ctx.state !== 'running') return;
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1400, now);
+    osc.frequency.exponentialRampToValueAtTime(180, now + 0.065);
+    g.gain.setValueAtTime(0.24, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.08);
+  } catch {}
+}
+
+function syncPhotoModeControls() {
+  if (dom.photoZoomLabel) {
+    dom.photoZoomLabel.textContent = state.photoZoom === 'wide' ? 'มุมกว้าง' : 'ระยะใกล้';
+  }
+  if (dom.btnPhotoNames) {
+    dom.btnPhotoNames.setAttribute('aria-pressed', String(state.photoShowNames));
+  }
+  if (dom.photoNamesLabel) {
+    dom.photoNamesLabel.textContent = state.photoShowNames ? 'แสดงชื่อ' : 'ซ่อนชื่อ';
+  }
+  if (dom.labelsLayer && state.photoMode) {
+    dom.labelsLayer.style.visibility = state.photoShowNames ? 'visible' : 'hidden';
+  }
+}
+
+function enterPhotoMode() {
+  if (!state.joined || state.photoMode) return;
+  state.photoMode = true;
+  state.photoZoom = 'wide';
+  state.photoShowNames = false;
+
+  const self = state.players.get(state.selfId);
+  if (self) {
+    // Gently place on the green turf facing the camera (+Z) if off to the edge; keep group pose if already centered
+    const inFront =
+      self.currentPos.x >= PHOTO_BOOTH_CONFIG.x - 2.6 &&
+      self.currentPos.x <= PHOTO_BOOTH_CONFIG.x + 2.6 &&
+      self.currentPos.z >= PHOTO_BOOTH_CONFIG.z + 0.85 &&
+      self.currentPos.z <= PHOTO_BOOTH_CONFIG.z + 2.6;
+    if (!inFront) {
+      self.currentPos.set(PHOTO_BOOTH_CONFIG.x, 0, PHOTO_BOOTH_CONFIG.z + 1.55);
+    }
+    self.currentRotY = 0; // Face South (+Z) directly toward the portrait camera!
+    self.group.position.copy(self.currentPos);
+    self.group.rotation.y = 0;
+  }
+
+  dom.hud.classList.add('hidden');
+  dom.photoModeBar.classList.remove('hidden');
+  syncPhotoModeControls();
+}
+
+function exitPhotoMode() {
+  if (!state.photoMode) return;
+  state.photoMode = false;
+  if (camera.fov !== 58) {
+    camera.fov = 58;
+    camera.updateProjectionMatrix();
+  }
+  if (dom.labelsLayer) {
+    dom.labelsLayer.style.visibility = 'visible';
+  }
+  dom.photoModeBar.classList.add('hidden');
+  dom.hud.classList.remove('hidden');
+  if (dom.dialogPhotoPreview?.open) {
+    dom.dialogPhotoPreview.close();
+  }
+}
+
+function captureBoothPhoto() {
+  if (!state.photoMode) return;
+  playShutterSound();
+
+  // Trigger crisp white shutter flash
+  if (dom.photoFlash) {
+    dom.photoFlash.classList.add('hidden');
+    void dom.photoFlash.offsetWidth;
+    dom.photoFlash.classList.remove('hidden');
+    setTimeout(() => dom.photoFlash.classList.add('hidden'), 360);
+  }
+
+  // Render a fresh high-res frame synchronously so WebGL drawingBuffer is guaranteed populated
+  renderer.render(scene, camera);
+
+  const srcCanvas = dom.worldCanvas;
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = srcCanvas.width;
+  outCanvas.height = srcCanvas.height;
+  const ctx = outCanvas.getContext('2d');
+  ctx.drawImage(srcCanvas, 0, 0);
+
+  // Subtle festival date watermark badge in bottom-right corner
+  const fontSize = Math.max(16, Math.round(outCanvas.width * 0.019));
+  const padX = Math.round(fontSize * 0.85);
+  const padY = Math.round(fontSize * 0.55);
+  const badgeText = '🏮 งานลอยกระทง วัดทุ่งท่าช้าง • 23–24 พ.ย. 69';
+  ctx.font = `700 ${fontSize}px "Noto Sans Thai", sans-serif`;
+  const tw = ctx.measureText(badgeText).width;
+  const bx = outCanvas.width - tw - padX * 2 - 18;
+  const by = outCanvas.height - fontSize - padY * 2 - 16;
+  const bw = tw + padX * 2;
+  const bh = fontSize + padY * 2;
+
+  ctx.fillStyle = 'rgba(10, 15, 34, 0.72)';
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, 999);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(246, 196, 83, 0.75)';
+  ctx.lineWidth = Math.max(1.5, fontSize * 0.08);
+  ctx.stroke();
+
+  ctx.fillStyle = '#fde68a';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(badgeText, bx + padX, by + bh / 2);
+
+  const fileName = `loy-krathong-thachang-${Date.now()}.png`;
+  outCanvas.toBlob((blob) => {
+    if (!blob) {
+      showToast('ไม่สามารถสร้างไฟล์รูปภาพได้ กรุณาลองอีกครั้ง');
+      return;
+    }
+    if (lastPhotoBlobUrl) URL.revokeObjectURL(lastPhotoBlobUrl);
+    lastPhotoBlob = blob;
+    lastPhotoBlobUrl = URL.createObjectURL(blob);
+
+    if (dom.photoPreviewImg) dom.photoPreviewImg.src = lastPhotoBlobUrl;
+    if (dom.btnPhotoDownload) {
+      dom.btnPhotoDownload.href = lastPhotoBlobUrl;
+      dom.btnPhotoDownload.download = fileName;
+    }
+    if (dom.btnPhotoShare) {
+      let canNativeShare = false;
+      try {
+        const testFile = new File([blob], fileName, { type: 'image/png' });
+        canNativeShare = Boolean(navigator.canShare && navigator.canShare({ files: [testFile] }));
+      } catch {}
+      dom.btnPhotoShare.classList.toggle('hidden', !canNativeShare);
+    }
+    if (dom.dialogPhotoPreview && !dom.dialogPhotoPreview.open) {
+      dom.dialogPhotoPreview.showModal();
+    }
+  }, 'image/png');
+}
+
+if (dom.btnPhotoWave) {
+  dom.btnPhotoWave.addEventListener('click', () => {
+    triggerSelfWave();
+  });
+}
+if (dom.btnPhotoZoom) {
+  dom.btnPhotoZoom.addEventListener('click', () => {
+    state.photoZoom = state.photoZoom === 'wide' ? 'close' : 'wide';
+    syncPhotoModeControls();
+  });
+}
+if (dom.btnPhotoNames) {
+  dom.btnPhotoNames.addEventListener('click', () => {
+    state.photoShowNames = !state.photoShowNames;
+    syncPhotoModeControls();
+  });
+}
+if (dom.btnPhotoCapture) {
+  dom.btnPhotoCapture.addEventListener('click', captureBoothPhoto);
+}
+if (dom.btnPhotoExit) {
+  dom.btnPhotoExit.addEventListener('click', exitPhotoMode);
+}
+if (dom.btnPhotoRetake) {
+  dom.btnPhotoRetake.addEventListener('click', () => {
+    if (dom.dialogPhotoPreview?.open) dom.dialogPhotoPreview.close();
+  });
+}
+if (dom.btnPhotoShare) {
+  dom.btnPhotoShare.addEventListener('click', async () => {
+    if (!lastPhotoBlob || !navigator.share) return;
+    try {
+      const file = new File([lastPhotoBlob], `loy-krathong-thachang-${Date.now()}.png`, {
+        type: 'image/png'
+      });
+      await navigator.share({
+        title: 'งานลอยกระทง วัดทุ่งท่าช้าง',
+        text: '#งานวัดไฮโซ โอ้โห ท่าช้าง 🏮',
+        files: [file]
+      });
+    } catch {}
   });
 }
 
@@ -4854,18 +5096,23 @@ document.addEventListener('visibilitychange', () => {
 
 // Keyboard Controls (PC)
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && state.photoMode && !dom.dialogPhotoPreview?.open) {
+    e.preventDefault();
+    exitPhotoMode();
+    return;
+  }
   if (isTypingOrModalOpen()) return;
   const code = e.code;
   state.keys.add(code);
 
-  if (code === 'KeyE' && state.activeZone) {
+  if (code === 'KeyE' && state.activeZone && !state.photoMode) {
     e.preventDefault();
     openZoneDialog(state.activeZone);
   }
   if (code === 'KeyH' && !e.repeat) {
     triggerSelfWave();
   }
-  if (code === 'KeyV' && !e.repeat) {
+  if (code === 'KeyV' && !e.repeat && !state.photoMode) {
     state.voiceLockedOn = false;
     setPushToTalk(true);
   }
@@ -4887,7 +5134,7 @@ const activeCanvasPointers = new Map();
 let lastPinchDist = null;
 
 dom.worldCanvas.addEventListener('pointerdown', (e) => {
-  if (!state.joined) return;
+  if (!state.joined || state.photoMode) return;
   activeCanvasPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (activeCanvasPointers.size === 2) {
@@ -4951,7 +5198,7 @@ window.addEventListener('pointercancel', releaseCanvasPointer);
 dom.worldCanvas.addEventListener(
   'wheel',
   (e) => {
-    if (!state.joined) return;
+    if (!state.joined || state.photoMode) return;
     e.preventDefault();
     state.cameraOrbit.distance = THREE.MathUtils.clamp(
       state.cameraOrbit.distance + e.deltaY * 0.006,
@@ -5079,20 +5326,41 @@ function updateLocalPlayer(dt) {
   self.group.position.copy(self.currentPos);
   self.group.rotation.y = self.currentRotY;
 
-  // Third-person camera follow (reuses vectors to avoid per-frame GC churn)
-  const { yaw, pitch, distance } = state.cameraOrbit;
-  camTargetVec.set(
-    self.currentPos.x,
-    self.currentPos.y + Math.max(0.75, (self.headY || 1.45) * 0.72),
-    self.currentPos.z
-  );
-  const camX = camTargetVec.x + Math.sin(yaw) * Math.cos(pitch) * distance;
-  const camY = Math.max(0.9, camTargetVec.y + Math.sin(pitch) * distance);
-  const camZ = camTargetVec.z + Math.cos(yaw) * Math.cos(pitch) * distance;
+  if (state.photoMode) {
+    // Auto-framed front portrait camera facing the "#งานวัดไฮโซ โอ้โห ท่าช้าง" bamboo booth
+    const isPortrait = camera.aspect < 0.95;
+    const isWide = state.photoZoom === 'wide';
+    const targetFov = isPortrait ? (isWide ? 68 : 56) : isWide ? 56 : 44;
+    if (Math.abs(camera.fov - targetFov) > 0.15) {
+      camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 8);
+      camera.updateProjectionMatrix();
+    }
+    const camDist = isPortrait ? (isWide ? 7.3 : 5.4) : isWide ? 5.1 : 3.9;
+    const camY = isPortrait ? (isWide ? 2.25 : 1.78) : isWide ? 1.82 : 1.66;
+    camTargetVec.set(
+      PHOTO_BOOTH_CONFIG.x,
+      isWide ? 1.56 : 1.48,
+      PHOTO_BOOTH_CONFIG.z + 0.15
+    );
+    camDesiredVec.set(PHOTO_BOOTH_CONFIG.x, camY, PHOTO_BOOTH_CONFIG.z + camDist);
+    camera.position.lerp(camDesiredVec, Math.min(1, dt * 9));
+    camera.lookAt(camTargetVec);
+  } else {
+    // Third-person camera follow (reuses vectors to avoid per-frame GC churn)
+    const { yaw, pitch, distance } = state.cameraOrbit;
+    camTargetVec.set(
+      self.currentPos.x,
+      self.currentPos.y + Math.max(0.75, (self.headY || 1.45) * 0.72),
+      self.currentPos.z
+    );
+    const camX = camTargetVec.x + Math.sin(yaw) * Math.cos(pitch) * distance;
+    const camY = Math.max(0.9, camTargetVec.y + Math.sin(pitch) * distance);
+    const camZ = camTargetVec.z + Math.cos(yaw) * Math.cos(pitch) * distance;
 
-  camDesiredVec.set(camX, camY, camZ);
-  camera.position.lerp(camDesiredVec, Math.min(1, dt * 14));
-  camera.lookAt(camTargetVec);
+    camDesiredVec.set(camX, camY, camZ);
+    camera.position.lerp(camDesiredVec, Math.min(1, dt * 14));
+    camera.lookAt(camTargetVec);
+  }
 
   // Check nearby interactive zones
   let foundZone = null;
@@ -5437,6 +5705,8 @@ async function bootstrap() {
     ]
   );
   frontRoadState = buildFrontRoad(scene, state.lowGraphics);
+  photoBoothState = buildPhotoBooth(scene, addCollisionBox, state.lowGraphics);
+  mergeStaticMeshesByMaterial(photoBoothState.root, [], false, [photoBoothState.photoLight]);
   setupWorldCollisions();
 
   // Start rendering loop & pre-fetch music playlists before Lobby submit (for sync mobile audio unlock!)
