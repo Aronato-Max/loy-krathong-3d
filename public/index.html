@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=6">
+  <link rel="stylesheet" href="/css/style.css?v=7">
   <script type="importmap">
     {
       "imports": {
@@ -170,6 +170,7 @@
 
     <!-- Center Toast & Interaction Prompt -->
     <div id="toast-banner" class="toast-banner hidden" role="status" aria-live="polite"></div>
+    <button type="button" id="btn-yt-unlock" class="yt-unlock-pill hidden">🔊 แตะเพื่อเปิดเสียงเพลง YouTube หน้าเวที</button>
 
     <div id="interact-prompt-wrap" class="interact-wrap hidden">
       <button type="button" id="btn-interact" class="btn-interact">
@@ -275,14 +276,6 @@
       </div>
       <p id="float-held-info" class="dialog-desc">ตั้งจิตอธิษฐานแล้วปล่อยกระทงลงสู่สายน้ำ</p>
       <form id="float-krathong-form" class="dialog-form">
-        <div id="float-quick-pick" class="quick-pick hidden">
-          <span class="field-label">คุณยังไม่ได้ถือกระทง เลือกแบบด่วนได้หรือไปที่ซุ้มบูชากระทง:</span>
-          <div class="quick-pick-row">
-            <label><input type="radio" name="quickKrathong" value="banana"> 🌿 ใบตอง</label>
-            <label><input type="radio" name="quickKrathong" value="lotus" checked> 🪷 ดอกบัว</label>
-            <label><input type="radio" name="quickKrathong" value="bread"> 🍞 ขนมปัง</label>
-          </div>
-        </div>
         <div class="form-group">
           <label for="input-wish">คำอธิษฐาน</label>
           <textarea id="input-wish" rows="3" maxlength="120" placeholder="เช่น ขอให้ครอบครัวมีความสุข สุขภาพแข็งแรง สมหวังตลอดปี..." autofocus></textarea>
@@ -343,8 +336,50 @@
     </div>
   </dialog>
 
-  <script src="/config.js?v=6"></script>
+  <!-- 4e. Concert Stage Jukebox Dialog (YouTube + MP3 Playlist Sync) -->
+  <dialog id="dialog-stage-music" class="festive-dialog" closedby="any" aria-labelledby="title-stage-music">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-stage-music">🎵 ตู้เพลงหน้าเวทีคอนเสิร์ต</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-stage-music" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <div class="stage-now-playing" aria-live="polite">
+        <span class="stage-np-label">กำลังเล่น:</span>
+        <strong id="stage-now-playing-title">ดนตรีงานวัดอัตโนมัติ (120 BPM)</strong>
+        <small id="stage-now-playing-by">โดย ระบบงานวัด</small>
+      </div>
+
+      <form id="stage-youtube-form" class="dialog-form stage-music-section">
+        <div class="form-group">
+          <label for="input-yt-url">🎬 เปิดเพลงจากลิงก์ YouTube (ซิงก์ฟังพร้อมกันทั้งห้อง)</label>
+          <input id="input-yt-url" type="url" maxlength="200" placeholder="วางลิงก์ เช่น https://youtu.be/..." autocomplete="off">
+        </div>
+        <div class="stage-yt-row">
+          <input id="input-yt-title" type="text" maxlength="60" placeholder="ตั้งชื่อเพลง (ไม่ใส่ก็ได้)" autocomplete="off">
+          <button type="submit" class="btn-primary">เปิด YouTube ▶</button>
+        </div>
+      </form>
+
+      <div class="stage-music-section">
+        <span class="field-label">🎧 เพลง MP3 ประจำเวที (เสียง 3D แท้ ไม่มีโฆษณา)</span>
+        <div id="stage-mp3-list" class="stage-track-list"></div>
+        <p id="stage-mp3-empty" class="stage-track-hint hidden">
+          ยังไม่มีไฟล์ MP3 ในโฟลเดอร์ <code>public/audio/</code> — นำไฟล์ .mp3 มาวางไว้แล้ว Deploy รายชื่อเพลงจะขึ้นที่นี่อัตโนมัติครับ
+        </p>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" id="btn-stage-synth" class="btn-secondary">🎹 กลับไปใช้ดนตรีงานวัด (120 BPM)</button>
+        <button type="button" class="btn-secondary" data-close-dialog="dialog-stage-music">ปิด</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Hidden YouTube IFrame container for spatialized Concert Stage playback -->
+  <div id="yt-stage-host" class="yt-stage-host" aria-hidden="true"></div>
+
+  <script src="/config.js?v=7"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=6"></script>
+  <script type="module" src="/js/app.js?v=7"></script>
 </body>
 </html>

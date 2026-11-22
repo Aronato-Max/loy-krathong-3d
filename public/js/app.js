@@ -62,7 +62,7 @@ const MODEL_SPECS = [
     key: 'krathongTables',
     url: `/models/krathong_tables.glb${MODEL_VER}`,
     label: 'โต๊ะบูชากระทง',
-    pos: [20, 0, -25.8],
+    pos: [30.8, 0, -23.0],
     rotY: 0,
     animate: true,
     fallbackSize: [5, 2.2, 2]
@@ -132,10 +132,10 @@ const BUDDHA_BLESSINGS = [
 const INTERACT_ZONES = [
   {
     id: 'krathong-shop',
-    x: 20,
-    z: -24.5,
+    x: 30.8,
+    z: -21.2,
     radius: 4.8,
-    label: 'เลือกบูชากระทง (3 แบบ)',
+    label: 'เลือกบูชากระทงฟรี (3 แบบ)',
     dialogId: 'dialog-krathong-shop'
   },
   {
@@ -145,6 +145,14 @@ const INTERACT_ZONES = [
     radius: 4.8,
     label: 'ลอยกระทงอธิษฐาน',
     dialogId: 'dialog-float-krathong'
+  },
+  {
+    id: 'concert-jukebox',
+    x: -21,
+    z: -45.5,
+    radius: 7.2,
+    label: 'เปิด/เลือกเพลงหน้าเวที 🎵',
+    dialogId: 'dialog-stage-music'
   },
   {
     id: 'lantern-plaza',
@@ -236,7 +244,6 @@ const dom = {
   dialogKrathongShop: document.getElementById('dialog-krathong-shop'),
   dialogFloatKrathong: document.getElementById('dialog-float-krathong'),
   floatHeldInfo: document.getElementById('float-held-info'),
-  floatQuickPick: document.getElementById('float-quick-pick'),
   floatKrathongForm: document.getElementById('float-krathong-form'),
   inputWish: document.getElementById('input-wish'),
 
@@ -246,7 +253,19 @@ const dom = {
 
   dialogBuddha: document.getElementById('dialog-buddha'),
   buddhaBlessingText: document.getElementById('buddha-blessing-text'),
-  btnPrayAgain: document.getElementById('btn-pray-again')
+  btnPrayAgain: document.getElementById('btn-pray-again'),
+
+  btnYtUnlock: document.getElementById('btn-yt-unlock'),
+  dialogStageMusic: document.getElementById('dialog-stage-music'),
+  stageNowPlayingTitle: document.getElementById('stage-now-playing-title'),
+  stageNowPlayingBy: document.getElementById('stage-now-playing-by'),
+  stageYoutubeForm: document.getElementById('stage-youtube-form'),
+  inputYtUrl: document.getElementById('input-yt-url'),
+  inputYtTitle: document.getElementById('input-yt-title'),
+  stageMp3List: document.getElementById('stage-mp3-list'),
+  stageMp3Empty: document.getElementById('stage-mp3-empty'),
+  btnStageSynth: document.getElementById('btn-stage-synth'),
+  ytStageHost: document.getElementById('yt-stage-host')
 };
 
 const state = {
@@ -353,7 +372,7 @@ const perfLodRefs = {
   concertAnimNodes: [],
   concertPos: new THREE.Vector3(-21, 0, -52.5),
   krathongTablesRoot: null,
-  krathongPos: new THREE.Vector3(20, 0, -25.8),
+  krathongPos: new THREE.Vector3(30.8, 0, -23.0),
   cullableBuildings: [] // { root, pos, maxDist }
 };
 
@@ -596,8 +615,8 @@ function setupWorldCollisions() {
   addCollisionBox(-6.8, -4.5, 52.8, 55.5, 'gate-elephant-left');
   addCollisionBox(4.5, 6.8, 52.8, 55.5, 'gate-elephant-right');
 
-  // Krathong tables (20, -25.8)
-  addCollisionBox(17.2, 22.8, -26.8, -24.8, 'krathong-tables');
+  // Krathong tables moved beside the pier walkway (30.8, -23.0)
+  addCollisionBox(28.2, 33.4, -24.1, -22.2, 'krathong-tables');
 
   // Concert stage moved to north-left (-21, -52.5), rotY = 0
   addCollisionBox(-32.2, -9.8, -56.3, -48.7, 'concert-stage');
@@ -865,12 +884,18 @@ function buildGroundAndRoads() {
   tunnelWalk2.position.set(16.15, 0.014, -20.6);
   scene.add(tunnelWalk2);
 
-  // Open diagonal walkway connecting trimmed end of tunnel_18m (25,-20.6) & krathong tables (20,-25.8) to pier (35.4,-12)
+  // Open diagonal walkway connecting trimmed end of tunnel_18m (25,-20.6) & krathong shop (30.8,-23.0) to pier (35.4,-12)
   const pierLink = new THREE.Mesh(new THREE.PlaneGeometry(13.5, 5.2), pathMat);
   pierLink.rotation.x = -Math.PI / 2;
   pierLink.rotation.z = -0.68;
   pierLink.position.set(30.5, 0.014, -16.8);
   scene.add(pierLink);
+
+  // Forecourt pad under relocated Krathong Shop beside the pond & pier
+  const krathongShopPad = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 5.2), pathMat);
+  krathongShopPad.rotation.x = -Math.PI / 2;
+  krathongShopPad.position.set(30.8, 0.013, -22.2);
+  scene.add(krathongShopPad);
 
   // Plaza around Krathong tables & Command tent
   const plazaTopRight = new THREE.Mesh(new THREE.PlaneGeometry(18, 9), pathMat);
@@ -1530,6 +1555,19 @@ function buildSpecialZones() {
   pierGroup.add(pierSign);
 
   scene.add(pierGroup);
+
+  // 4) ป้ายตู้เพลงหน้าเวทีคอนเสิร์ต (DJ Jukebox Stand at (-13.5, 0, -47.2))
+  const djGroup = new THREE.Group();
+  djGroup.position.set(-13.5, 0, -47.2);
+  const djPost = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.07, 2.2, 8),
+    new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.7 })
+  );
+  djPost.position.y = 1.1;
+  const djSign = createSignBoard('🎵 ตู้เพลงหน้าเวที (กด E)', 3.6, 0.9, '#312e81', '#fde047');
+  djSign.position.y = 2.35;
+  djGroup.add(djPost, djSign);
+  scene.add(djGroup);
 }
 
 // ============================================================================
@@ -2592,19 +2630,321 @@ function spawnReleasedLantern(lData) {
 }
 
 // ============================================================================
-// 9. SPATIAL CONCERT AUDIO (concert.mp3 OR 120 BPM SYNTHESIZER)
+// 9. SPATIAL CONCERT AUDIO (YOUTUBE SYNC + MP3 PLAYLIST + 120 BPM SYNTH)
 // ============================================================================
 
 const audioEngine = {
   ctx: null,
   concertGain: null,
   concertPanner: null,
-  usingMp3: false,
+  mode: 'synth', // 'synth' | 'mp3' | 'youtube'
+  stageMusic: {
+    mode: 'synth',
+    title: 'ดนตรีงานวัดอัตโนมัติ (120 BPM)',
+    url: null,
+    filename: null,
+    videoId: null,
+    requestedBy: 'ระบบงานวัด',
+    startedAt: Date.now()
+  },
+  stageTracks: [],
   mp3El: null,
+  mp3SourceNode: null,
   synthTimer: null,
   step: 0,
+  ytApiLoading: false,
+  ytApiReady: false,
+  ytPlayer: null,
+  ytReady: false,
+  pendingYt: null,
+  lastYtVol: -1,
   started: false
 };
+
+function parseYouTubeVideoId(raw) {
+  const str = String(raw || '').trim();
+  if (!str) return null;
+  if (/^[A-Za-z0-9_-]{11}$/.test(str)) return str;
+  try {
+    const u = new URL(str.startsWith('http') ? str : `https://${str}`);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    if (host === 'youtu.be') {
+      const seg = u.pathname.split('/').filter(Boolean)[0];
+      return seg && /^[A-Za-z0-9_-]{11}$/.test(seg) ? seg : null;
+    }
+    if (host.endsWith('youtube.com') || host.endsWith('youtube-nocookie.com')) {
+      const v = u.searchParams.get('v');
+      if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
+      const parts = u.pathname.split('/').filter(Boolean);
+      const markerIdx = parts.findIndex((p) => p === 'shorts' || p === 'embed' || p === 'live' || p === 'v');
+      if (markerIdx >= 0 && parts[markerIdx + 1] && /^[A-Za-z0-9_-]{11}$/.test(parts[markerIdx + 1])) {
+        return parts[markerIdx + 1];
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function stopSynth120BPM() {
+  if (audioEngine.synthTimer) {
+    clearInterval(audioEngine.synthTimer);
+    audioEngine.synthTimer = null;
+  }
+}
+
+function stopStageMp3() {
+  if (audioEngine.mp3El) {
+    try {
+      audioEngine.mp3El.pause();
+    } catch {}
+  }
+}
+
+function pauseStageYouTube() {
+  if (dom.btnYtUnlock) dom.btnYtUnlock.classList.add('hidden');
+  if (audioEngine.ytPlayer && audioEngine.ytReady) {
+    try {
+      audioEngine.ytPlayer.pauseVideo();
+    } catch {}
+  }
+}
+
+function loadYouTubeIframeAPI() {
+  if (window.YT && window.YT.Player) {
+    audioEngine.ytApiReady = true;
+    return Promise.resolve();
+  }
+  if (audioEngine.ytApiLoading) {
+    return new Promise((resolve) => {
+      const prev = window.__ytReadyResolvers || [];
+      prev.push(resolve);
+      window.__ytReadyResolvers = prev;
+    });
+  }
+  audioEngine.ytApiLoading = true;
+  return new Promise((resolve) => {
+    window.__ytReadyResolvers = [resolve];
+    const prevCallback = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      audioEngine.ytApiReady = true;
+      if (typeof prevCallback === 'function') prevCallback();
+      const resolvers = window.__ytReadyResolvers || [];
+      window.__ytReadyResolvers = [];
+      resolvers.forEach((fn) => fn());
+    };
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    tag.async = true;
+    document.head.appendChild(tag);
+  });
+}
+
+async function playStageYouTube(videoId, startedAt) {
+  const startSec = Math.max(0, Math.floor((Date.now() - (startedAt || Date.now())) / 1000));
+  audioEngine.pendingYt = { videoId, startSec };
+  await loadYouTubeIframeAPI();
+  if (audioEngine.mode !== 'youtube' || audioEngine.stageMusic?.videoId !== videoId) return;
+
+  if (audioEngine.ytPlayer && audioEngine.ytReady) {
+    try {
+      audioEngine.ytPlayer.loadVideoById({ videoId, startSeconds: startSec });
+      audioEngine.ytPlayer.unMute();
+      audioEngine.ytPlayer.playVideo();
+      setTimeout(() => {
+        if (audioEngine.mode !== 'youtube' || !audioEngine.ytPlayer) return;
+        try {
+          const st = audioEngine.ytPlayer.getPlayerState();
+          if (st !== window.YT.PlayerState.PLAYING && st !== window.YT.PlayerState.BUFFERING && dom.btnYtUnlock) {
+            dom.btnYtUnlock.classList.remove('hidden');
+          }
+        } catch {}
+      }, 1500);
+    } catch {}
+    return;
+  }
+
+  if (!dom.ytStageHost || audioEngine.ytPlayer) return;
+  const playerMount = document.createElement('div');
+  playerMount.id = 'yt-stage-player-el';
+  dom.ytStageHost.replaceChildren(playerMount);
+
+  audioEngine.ytPlayer = new window.YT.Player(playerMount, {
+    height: '120',
+    width: '120',
+    videoId,
+    playerVars: {
+      autoplay: 1,
+      controls: 0,
+      disablekb: 1,
+      fs: 0,
+      playsinline: 1,
+      rel: 0,
+      start: startSec,
+      origin: window.location.origin
+    },
+    events: {
+      onReady: (ev) => {
+        audioEngine.ytReady = true;
+        if (audioEngine.mode !== 'youtube') {
+          ev.target.pauseVideo();
+          return;
+        }
+        const pending = audioEngine.pendingYt;
+        try {
+          if (pending && pending.videoId !== videoId) {
+            ev.target.loadVideoById({ videoId: pending.videoId, startSeconds: pending.startSec });
+          }
+          ev.target.setVolume(state.musicEnabled ? 35 : 0);
+          ev.target.unMute();
+          ev.target.playVideo();
+        } catch {}
+        setTimeout(() => {
+          if (audioEngine.mode !== 'youtube') return;
+          try {
+            const st = ev.target.getPlayerState();
+            if (st !== window.YT.PlayerState.PLAYING && st !== window.YT.PlayerState.BUFFERING && dom.btnYtUnlock) {
+              dom.btnYtUnlock.classList.remove('hidden');
+            }
+          } catch {}
+        }, 1600);
+      },
+      onStateChange: (ev) => {
+        if (ev.data === window.YT.PlayerState.PLAYING && dom.btnYtUnlock) {
+          dom.btnYtUnlock.classList.add('hidden');
+        } else if (ev.data === window.YT.PlayerState.ENDED && audioEngine.mode === 'youtube') {
+          try {
+            ev.target.seekTo(0, true);
+            ev.target.playVideo();
+          } catch {}
+        }
+      },
+      onError: () => {
+        showToast('⚠️ คลิป YouTube นี้ไม่อนุญาตให้เล่นแบบฝัง (Embed) — ลองเลือกลิงก์อื่นหรือเพลง MP3 นะครับ');
+      }
+    }
+  });
+}
+
+async function playStageMp3(url, startedAt) {
+  if (!audioEngine.started) await initConcertAudio();
+  if (!audioEngine.ctx) return;
+
+  if (!audioEngine.mp3El) {
+    const el = new Audio();
+    el.loop = true;
+    el.crossOrigin = 'anonymous';
+    const src = audioEngine.ctx.createMediaElementSource(el);
+    src.connect(audioEngine.concertGain);
+    audioEngine.mp3El = el;
+    audioEngine.mp3SourceNode = src;
+  }
+
+  const fullUrl = apiUrl(url);
+  if (audioEngine.mp3El.src !== new URL(fullUrl, window.location.origin).href) {
+    audioEngine.mp3El.src = fullUrl;
+  }
+
+  const syncSeek = () => {
+    const dur = audioEngine.mp3El?.duration;
+    if (dur && Number.isFinite(dur) && dur > 1) {
+      const elapsedSec = Math.max(0, (Date.now() - (startedAt || Date.now())) / 1000);
+      audioEngine.mp3El.currentTime = elapsedSec % dur;
+    }
+  };
+  if (audioEngine.mp3El.readyState >= 1) {
+    syncSeek();
+  } else {
+    audioEngine.mp3El.addEventListener('loadedmetadata', syncSeek, { once: true });
+  }
+
+  try {
+    await audioEngine.mp3El.play();
+  } catch (err) {
+    console.warn('Could not play stage MP3:', err);
+  }
+}
+
+function updateStageMusicUI() {
+  const m = audioEngine.stageMusic;
+  if (dom.stageNowPlayingTitle) {
+    dom.stageNowPlayingTitle.textContent = m?.title || 'ดนตรีงานวัดอัตโนมัติ (120 BPM)';
+  }
+  if (dom.stageNowPlayingBy) {
+    const modeTag = m?.mode === 'youtube' ? 'YouTube' : m?.mode === 'mp3' ? 'MP3 3D' : 'Synth';
+    dom.stageNowPlayingBy.textContent = `โหมด ${modeTag} • เปิดโดย ${m?.requestedBy || 'ระบบงานวัด'}`;
+  }
+  if (dom.stageMp3List) {
+    for (const btn of dom.stageMp3List.querySelectorAll('.stage-track-btn')) {
+      const isActive = m?.mode === 'mp3' && btn.dataset.filename === m.filename;
+      btn.classList.toggle('is-playing', isActive);
+    }
+  }
+}
+
+async function applyStageMusic(music) {
+  if (!music || typeof music !== 'object') return;
+  audioEngine.stageMusic = music;
+  audioEngine.mode = music.mode || 'synth';
+  updateStageMusicUI();
+
+  if (!audioEngine.started) return;
+
+  if (audioEngine.mode === 'youtube' && music.videoId) {
+    stopSynth120BPM();
+    stopStageMp3();
+    await playStageYouTube(music.videoId, music.startedAt);
+  } else if (audioEngine.mode === 'mp3' && music.url) {
+    stopSynth120BPM();
+    pauseStageYouTube();
+    await playStageMp3(music.url, music.startedAt);
+  } else {
+    stopStageMp3();
+    pauseStageYouTube();
+    startSynth120BPM();
+  }
+}
+
+async function loadStageMp3Tracks() {
+  if (!dom.stageMp3List) return;
+  try {
+    const res = await fetch(apiUrl('/api/stage-tracks'));
+    if (!res.ok) return;
+    const data = await res.json();
+    const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
+    audioEngine.stageTracks = tracks;
+    dom.stageMp3List.replaceChildren();
+    if (tracks.length === 0) {
+      if (dom.stageMp3Empty) dom.stageMp3Empty.classList.remove('hidden');
+      return;
+    }
+    if (dom.stageMp3Empty) dom.stageMp3Empty.classList.add('hidden');
+    for (const t of tracks) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'stage-track-btn';
+      btn.dataset.filename = t.filename;
+      const isPlaying = audioEngine.stageMusic?.mode === 'mp3' && audioEngine.stageMusic.filename === t.filename;
+      if (isPlaying) btn.classList.add('is-playing');
+
+      const titleSpan = document.createElement('span');
+      titleSpan.textContent = `🎵 ${t.title}`;
+      const badge = document.createElement('small');
+      badge.textContent = isPlaying ? 'กำลังเล่น' : 'เปิดเพลง';
+      btn.append(titleSpan, badge);
+
+      btn.addEventListener('click', () => {
+        if (!socket) return;
+        socket.emit('stage:setMusic', { mode: 'mp3', filename: t.filename, url: t.url }, (ack) => {
+          if (ack?.ok) {
+            dom.dialogStageMusic.close();
+            showToast(`🎵 เปลี่ยนเพลงหน้าเวทีเป็น "${t.title}" แล้ว!`);
+          }
+        });
+      });
+      dom.stageMp3List.appendChild(btn);
+    }
+  } catch {}
+}
 
 async function initConcertAudio() {
   if (audioEngine.started) {
@@ -2625,36 +2965,8 @@ async function initConcertAudio() {
   audioEngine.concertPanner.connect(audioEngine.ctx.destination);
   audioEngine.started = true;
 
-  // Check if /audio/concert.mp3 exists without causing a 404 console warning
-  let hasMp3 = false;
-  try {
-    const res = await fetch(apiUrl('/api/audio-check'));
-    if (res.ok) {
-      const info = await res.json();
-      hasMp3 = Boolean(info?.exists);
-    }
-  } catch {
-    hasMp3 = false;
-  }
-
-  if (hasMp3) {
-    try {
-      const el = new Audio('/audio/concert.mp3');
-      el.loop = true;
-      el.crossOrigin = 'anonymous';
-      const src = audioEngine.ctx.createMediaElementSource(el);
-      src.connect(audioEngine.concertGain);
-      await el.play();
-      audioEngine.mp3El = el;
-      audioEngine.usingMp3 = true;
-      return;
-    } catch (err) {
-      console.warn('Could not stream concert.mp3, falling back to 120 BPM synth:', err);
-    }
-  }
-
-  // Fallback: 120 BPM Web Audio Synthesizer (16th-note step = 125ms)
-  startSynth120BPM();
+  // Apply whichever stage music is active (default synth or room-synced MP3/YouTube)
+  await applyStageMusic(audioEngine.stageMusic);
 }
 
 function startSynth120BPM() {
@@ -2748,14 +3060,29 @@ function startSynth120BPM() {
 
 function updateSpatialConcertAudio(playerPos) {
   if (!audioEngine.concertGain || !audioEngine.ctx) return;
+  const dist = playerPos.distanceTo(CONCERT_POS);
+  // Loud within 10m, gentle rolloff up to 52m
+  const maxDist = 52;
+  const vol = state.musicEnabled ? Math.max(0, 1 - Math.max(0, dist - 8) / (maxDist - 8)) : 0;
+
+  if (audioEngine.mode === 'youtube') {
+    audioEngine.concertGain.gain.setTargetAtTime(0, audioEngine.ctx.currentTime, 0.06);
+    if (audioEngine.ytPlayer && audioEngine.ytReady) {
+      const ytVol = Math.round(vol * vol * 95);
+      if (Math.abs(ytVol - audioEngine.lastYtVol) >= 2 || (ytVol === 0 && audioEngine.lastYtVol !== 0)) {
+        audioEngine.lastYtVol = ytVol;
+        try {
+          audioEngine.ytPlayer.setVolume(ytVol);
+        } catch {}
+      }
+    }
+    return;
+  }
+
   if (!state.musicEnabled) {
     audioEngine.concertGain.gain.setTargetAtTime(0, audioEngine.ctx.currentTime, 0.06);
     return;
   }
-  const dist = playerPos.distanceTo(CONCERT_POS);
-  // Loud within 10m, gentle rolloff up to 52m
-  const maxDist = 52;
-  const vol = Math.max(0, 1 - Math.max(0, dist - 8) / (maxDist - 8));
   const curvedVol = vol * vol * 0.48;
   audioEngine.concertGain.gain.setTargetAtTime(curvedVol, audioEngine.ctx.currentTime, 0.08);
 
@@ -3101,6 +3428,9 @@ function connectSocketAndJoin() {
     (data.players || []).forEach((p) => spawnOrUpdatePlayer(p));
     (data.krathongs || []).forEach((k) => spawnFloatedKrathong(k));
     (data.lanterns || []).forEach((l) => spawnReleasedLantern(l));
+    if (data.stageMusic) {
+      applyStageMusic(data.stageMusic);
+    }
     updateOnlineCounter();
   });
 
@@ -3136,6 +3466,10 @@ function connectSocketAndJoin() {
 
   socket.on('lantern:released', (l) => {
     spawnReleasedLantern(l);
+  });
+
+  socket.on('stage:musicUpdated', (music) => {
+    applyStageMusic(music);
   });
 
   socket.on('chat:message', (msg) => {
@@ -3258,9 +3592,9 @@ function drawMinimap() {
   minimapCtx.fillRect(mapX(6.5), mapY(-19), mapW(3), mapH(24));
   minimapCtx.fillRect(mapX(8), mapY(-22.1), mapW(17), mapH(3));
 
-  // Krathong tables (20, -25.8) & Command (8.5, -26.2)
+  // Krathong tables (30.8, -23.0) & Command (8.5, -26.2)
   minimapCtx.fillStyle = '#fb923c';
-  minimapCtx.fillRect(mapX(17.5), mapY(-27), mapW(5), mapH(2.2));
+  minimapCtx.fillRect(mapX(28.3), mapY(-24.1), mapW(5), mapH(2.2));
   minimapCtx.fillStyle = '#a855f7';
   minimapCtx.fillRect(mapX(6.7), mapY(-28), mapW(3.6), mapH(3.6));
 
@@ -3385,15 +3719,17 @@ function openZoneDialog(zone) {
   if (zone.id === 'krathong-shop') {
     dom.dialogKrathongShop.showModal();
   } else if (zone.id === 'float-pier') {
-    if (state.heldKrathong) {
-      const meta = KRATHONG_META[state.heldKrathong];
-      dom.floatHeldInfo.textContent = `คุณกำลังถือ ${meta.emoji} ${meta.name} พร้อมปล่อยลงสระน้ำแล้ว`;
-      dom.floatQuickPick.classList.add('hidden');
-    } else {
-      dom.floatHeldInfo.textContent = 'คุณยังไม่ได้รับกระทงจากซุ้มบูชากระทง สามารถเลือกแบบด่วนด้านล่างได้ทันที';
-      dom.floatQuickPick.classList.remove('hidden');
+    if (!state.heldKrathong) {
+      showToast('🪷 คุณยังไม่มีกระทง! กรุณาเดินไปรับกระทงฟรีที่ร้านขายกระทงข้างท่าน้ำก่อนนะครับ');
+      return;
     }
+    const meta = KRATHONG_META[state.heldKrathong];
+    dom.floatHeldInfo.textContent = `คุณกำลังถือ ${meta.emoji} ${meta.name} พร้อมปล่อยลงสระน้ำแล้ว`;
     dom.dialogFloatKrathong.showModal();
+  } else if (zone.id === 'concert-jukebox') {
+    updateStageMusicUI();
+    loadStageMp3Tracks();
+    dom.dialogStageMusic.showModal();
   } else if (zone.id === 'lantern-plaza') {
     dom.dialogReleaseLantern.showModal();
   } else if (zone.id === 'sala-buddha') {
@@ -3421,26 +3757,83 @@ document.querySelectorAll('[data-krathong-type]').forEach((btn) => {
   });
 });
 
-// Float Krathong Submit
+// Float Krathong Submit (requires holding a krathong from the shop first)
 dom.floatKrathongForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  let type = state.heldKrathong;
+  const type = state.heldKrathong;
   if (!type) {
-    const picked = dom.floatKrathongForm.querySelector('input[name="quickKrathong"]:checked');
-    type = picked ? picked.value : 'lotus';
+    dom.dialogFloatKrathong.close();
+    showToast('🪷 กรุณาไปรับกระทงที่ร้านขายกระทงก่อนนะครับ');
+    return;
   }
   const wish = dom.inputWish.value.trim() || 'ขอให้มีความสุข สุขภาพแข็งแรง 🌕';
   const launchX = 38.2 + Math.random() * 1.4;
   const launchZ = -12 + (Math.random() - 0.5) * 4;
 
   if (socket) {
-    socket.emit('krathong:float', { type, wish, x: launchX, z: launchZ }, () => {
+    socket.emit('krathong:float', { type, wish, x: launchX, z: launchZ }, (ack) => {
+      if (ack && ack.ok === false) {
+        dom.dialogFloatKrathong.close();
+        showToast('🪷 กรุณาไปรับกระทงที่ร้านขายกระทงก่อนนะครับ');
+        return;
+      }
       dom.inputWish.value = '';
       dom.dialogFloatKrathong.close();
       showToast('ปล่อยกระทงลงสู่สระน้ำเรียบร้อยแล้ว 🪷');
     });
   }
 });
+
+// Concert Stage Jukebox Controls (YouTube Link + Synth Reset + Mobile Unlock)
+if (dom.stageYoutubeForm) {
+  dom.stageYoutubeForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const rawUrl = dom.inputYtUrl.value.trim();
+    const videoId = parseYouTubeVideoId(rawUrl);
+    if (!videoId) {
+      showToast('⚠️ ลิงก์ YouTube ไม่ถูกต้อง กรุณาวางลิงก์เช่น https://youtu.be/... หรือ https://youtube.com/watch?v=...');
+      dom.inputYtUrl.focus();
+      return;
+    }
+    const title = dom.inputYtTitle.value.trim();
+    if (socket) {
+      socket.emit('stage:setMusic', { mode: 'youtube', videoId, title }, (ack) => {
+        if (ack?.ok) {
+          dom.inputYtUrl.value = '';
+          dom.inputYtTitle.value = '';
+          dom.dialogStageMusic.close();
+          showToast(`🎬 เปิดเพลง YouTube หน้าเวทีให้ทั้งห้องฟังแล้ว!`);
+        } else {
+          showToast('⚠️ ไม่สามารถเปลี่ยนเพลงหน้าเวทีได้ กรุณาลองใหม่');
+        }
+      });
+    }
+  });
+}
+
+if (dom.btnStageSynth) {
+  dom.btnStageSynth.addEventListener('click', () => {
+    if (!socket) return;
+    socket.emit('stage:setMusic', { mode: 'synth' }, (ack) => {
+      if (ack?.ok) {
+        dom.dialogStageMusic.close();
+        showToast('🎹 เปลี่ยนกลับเป็นดนตรีงานวัดอัตโนมัติ (120 BPM) แล้ว');
+      }
+    });
+  });
+}
+
+if (dom.btnYtUnlock) {
+  dom.btnYtUnlock.addEventListener('click', () => {
+    dom.btnYtUnlock.classList.add('hidden');
+    if (audioEngine.ytPlayer && audioEngine.ytReady) {
+      try {
+        audioEngine.ytPlayer.unMute();
+        audioEngine.ytPlayer.playVideo();
+      } catch {}
+    }
+  });
+}
 
 // Release Sky Lantern Submit
 dom.releaseLanternForm.addEventListener('submit', (e) => {
@@ -3951,7 +4344,11 @@ function updateLocalPlayer(dt) {
   }
   state.activeZone = foundZone;
   if (foundZone) {
-    dom.interactLabel.textContent = foundZone.label;
+    const labelText =
+      foundZone.id === 'float-pier' && !state.heldKrathong
+        ? 'ต้องรับกระทงที่ร้านก่อน 🪷'
+        : foundZone.label;
+    dom.interactLabel.textContent = labelText;
     dom.interactWrap.classList.remove('hidden');
   } else {
     dom.interactWrap.classList.add('hidden');
