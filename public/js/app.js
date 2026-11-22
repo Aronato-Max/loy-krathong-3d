@@ -260,7 +260,9 @@ const dom = {
   stageNpBy: document.getElementById('stage-np-by'),
   btnStagePrev: document.getElementById('btn-stage-prev'),
   btnStageNext: document.getElementById('btn-stage-next'),
-  stagePlaylistList: document.getElementById('stage-playlist-list')
+  stagePlaylistList: document.getElementById('stage-playlist-list'),
+  audioSink: document.getElementById('audio-elements-sink'),
+  btnAudioUnlock: document.getElementById('btn-audio-unlock')
 };
 
 const state = {
@@ -278,6 +280,7 @@ const state = {
   heldKrathong: null,
   activeZone: null,
   isSpeaking: false,
+  voiceLockedOn: false,
   musicEnabled: true,
   minimapHidden: window.matchMedia('(max-width: 720px)').matches || window.matchMedia('(pointer: coarse)').matches,
   minimapExpanded: false,
@@ -2991,11 +2994,32 @@ const CONCERT_AUDIO_ZONE = {
   fadeWidth: 6.0
 };
 
+// Feature-detect iOS/iPadOS where HTMLMediaElement.volume is read-only (always 1.0)
+const IS_VOLUME_READONLY = (() => {
+  try {
+    const probe = document.createElement('audio');
+    probe.volume = 0.5;
+    return Math.abs(probe.volume - 0.5) > 0.01;
+  } catch {
+    return false;
+  }
+})();
+
+// Tiny 44-byte silent WAV data URI used to bless <audio> elements synchronously inside user tap
+const SILENT_WAV_DATA_URI =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+const _audioToStage = new THREE.Vector3();
+const _audioCamRight = new THREE.Vector3();
+
 const audioEngine = {
   ctx: null,
   concertGain: null,
   concertPanner: null,
   festivalGain: null,
+  useWebAudioForMedia: IS_VOLUME_READONLY,
+  concertCurVol: 0,
+  festivalCurVol: 0,
   tracks: [],
   trackIndex: 0,
   currentTrack: null,
@@ -3006,8 +3030,91 @@ const audioEngine = {
   festivalEl: null,
   synthTimer: null,
   step: 0,
-  started: false
+  started: false,
+  preloadPromise: null,
+  needsUnlock: false
 };
+
+function updateAudioUnlockBanner() {
+  if (!dom.btnAudioUnlock) return;
+  const show = state.joined && state.musicEnabled && audioEngine.needsUnlock;
+  dom.btnAudioUnlock.classList.toggle('hidden', !show);
+}
+
+function preloadAudioTrackLists() {
+  if (audioEngine.preloadPromise) return audioEngine.preloadPromise;
+  audioEngine.preloadPromise = Promise.all([
+    fetch(apiUrl('/api/stage-tracks'))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (Array.isArray(data?.tracks) && data.tracks.length > 0 && audioEngine.tracks.length === 0) {
+          audioEngine.tracks = data.tracks;
+        }
+      })
+      .catch(() => {}),
+    fetch(apiUrl('/api/festival-tracks'))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (
+          Array.isArray(data?.tracks) &&
+          data.tracks.length > 0 &&
+          audioEngine.festivalTracks.length === 0
+        ) {
+          audioEngine.festivalTracks = data.tracks;
+        }
+      })
+      .catch(() => {})
+  ]).then(() => {
+    // If user already entered before preload finished, immediately start real tracks on blessed elements
+    if (audioEngine.started && state.musicEnabled) {
+      if (audioEngine.festivalTracks.length > 0 && !audioEngine.festivalEl?.dataset.trackLoaded) {
+        playFestivalTrack(0);
+      }
+      if (audioEngine.tracks.length > 0 && !audioEngine.mp3El?.dataset.trackLoaded) {
+        if (audioEngine.currentTrack) {
+          applyRoomStageTrack(audioEngine.currentTrack);
+        } else {
+          playStagePlaylistTrack(0, null, 'เวทีคอนเสิร์ต');
+        }
+      }
+    }
+  });
+  return audioEngine.preloadPromise;
+}
+
+function attachMediaElementToSink(el) {
+  el.playsInline = true;
+  el.setAttribute('playsinline', '');
+  el.setAttribute('webkit-playsinline', '');
+  el.preload = 'auto';
+  if (dom.audioSink && !el.parentElement) {
+    dom.audioSink.appendChild(el);
+  }
+}
+
+function safePlayMediaElement(el, label = 'audio') {
+  if (!el || !el.src) return;
+  try {
+    const p = el.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        if (audioEngine.needsUnlock && (!audioEngine.ctx || audioEngine.ctx.state === 'running')) {
+          audioEngine.needsUnlock = false;
+          updateAudioUnlockBanner();
+        }
+      }).catch((err) => {
+        if (err && err.name === 'AbortError') return;
+        console.warn(`Mobile autoplay paused (${label}):`, err?.name || err);
+        audioEngine.needsUnlock = true;
+        updateAudioUnlockBanner();
+      });
+    }
+  } catch (err) {
+    console.warn(`Audio play error (${label}):`, err);
+    audioEngine.needsUnlock = true;
+    updateAudioUnlockBanner();
+  }
+}
 
 function stopSynth120BPM() {
   if (audioEngine.synthTimer) {
@@ -3044,6 +3151,7 @@ function renderStagePlaylistUI() {
     btn.append(titleSpan, badge);
 
     btn.addEventListener('click', () => {
+      unlockAndResumeAudio();
       if (socket) {
         socket.emit('stage:selectTrack', { filename: track.filename }, (ack) => {
           if (ack?.ok) {
@@ -3057,16 +3165,26 @@ function renderStagePlaylistUI() {
 }
 
 function ensureStageAudioElement() {
-  if (audioEngine.mp3El || !audioEngine.ctx) return audioEngine.mp3El;
-  const el = new Audio();
+  if (audioEngine.mp3El) return audioEngine.mp3El;
+  const el = document.createElement('audio');
   el.crossOrigin = 'anonymous';
+  attachMediaElementToSink(el);
   el.addEventListener('ended', () => {
-    if (audioEngine.tracks.length > 1) {
+    if (audioEngine.tracks.length > 1 && state.musicEnabled) {
       playStagePlaylistTrack(audioEngine.trackIndex + 1, null);
     }
   });
-  const src = audioEngine.ctx.createMediaElementSource(el);
-  src.connect(audioEngine.concertGain);
+  if (audioEngine.useWebAudioForMedia && audioEngine.ctx && audioEngine.concertGain) {
+    try {
+      const src = audioEngine.ctx.createMediaElementSource(el);
+      src.connect(audioEngine.concertGain);
+    } catch {
+      audioEngine.useWebAudioForMedia = false;
+      el.volume = 0;
+    }
+  } else {
+    el.volume = 0;
+  }
   audioEngine.mp3El = el;
   audioEngine.usingPlaylist = true;
   return el;
@@ -3085,12 +3203,13 @@ function playStagePlaylistTrack(index, startedAt = null, changedBy = null) {
   };
   renderStagePlaylistUI();
 
-  if (!audioEngine.started || !audioEngine.ctx) return;
+  if (!audioEngine.started) return;
   stopSynth120BPM();
   const el = ensureStageAudioElement();
   if (!el) return;
 
   el.loop = total === 1;
+  el.dataset.trackLoaded = '1';
   const fullUrl = new URL(apiUrl(track.url), window.location.origin).href;
   const changingSrc = el.src !== fullUrl;
   if (changingSrc) {
@@ -3115,9 +3234,9 @@ function playStagePlaylistTrack(index, startedAt = null, changedBy = null) {
     el.addEventListener('loadedmetadata', syncTime, { once: true });
   }
 
-  el.play().catch((err) => {
-    console.warn('Could not play stage playlist track:', track.filename, err);
-  });
+  if (state.musicEnabled) {
+    safePlayMediaElement(el, 'stage');
+  }
 }
 
 function applyRoomStageTrack(trackData) {
@@ -3137,22 +3256,32 @@ function applyRoomStageTrack(trackData) {
 }
 
 function ensureFestivalAudioElement() {
-  if (audioEngine.festivalEl || !audioEngine.ctx || !audioEngine.festivalGain) return audioEngine.festivalEl;
-  const el = new Audio();
+  if (audioEngine.festivalEl) return audioEngine.festivalEl;
+  const el = document.createElement('audio');
   el.crossOrigin = 'anonymous';
+  attachMediaElementToSink(el);
   el.addEventListener('ended', () => {
-    if (audioEngine.festivalTracks.length > 1) {
+    if (audioEngine.festivalTracks.length > 1 && state.musicEnabled) {
       playFestivalTrack(audioEngine.festivalTrackIndex + 1);
     }
   });
-  const src = audioEngine.ctx.createMediaElementSource(el);
-  src.connect(audioEngine.festivalGain);
+  if (audioEngine.useWebAudioForMedia && audioEngine.ctx && audioEngine.festivalGain) {
+    try {
+      const src = audioEngine.ctx.createMediaElementSource(el);
+      src.connect(audioEngine.festivalGain);
+    } catch {
+      audioEngine.useWebAudioForMedia = false;
+      el.volume = 0;
+    }
+  } else {
+    el.volume = 0;
+  }
   audioEngine.festivalEl = el;
   return el;
 }
 
 function playFestivalTrack(index) {
-  if (audioEngine.festivalTracks.length === 0 || !audioEngine.started || !audioEngine.ctx) return;
+  if (audioEngine.festivalTracks.length === 0 || !audioEngine.started) return;
   const total = audioEngine.festivalTracks.length;
   audioEngine.festivalTrackIndex = ((index % total) + total) % total;
   const track = audioEngine.festivalTracks[audioEngine.festivalTrackIndex];
@@ -3160,90 +3289,121 @@ function playFestivalTrack(index) {
   if (!el) return;
 
   el.loop = total === 1;
+  el.dataset.trackLoaded = '1';
   const fullUrl = new URL(apiUrl(track.url), window.location.origin).href;
   if (el.src !== fullUrl) {
     el.src = fullUrl;
   }
-  el.play().catch((err) => {
-    console.warn('Could not play festival zone track:', track.filename, err);
-  });
+  if (state.musicEnabled) {
+    safePlayMediaElement(el, 'festival');
+  }
 }
 
-async function initConcertAudio() {
+function unlockAndResumeAudio(showConfirmation = false) {
+  if (!audioEngine.started) {
+    initConcertAudio();
+  }
+  if (audioEngine.ctx && audioEngine.ctx.state === 'suspended') {
+    audioEngine.ctx.resume().then(() => {
+      if (!audioEngine.needsUnlock) return;
+      const stageOk = !audioEngine.mp3El || !audioEngine.mp3El.paused;
+      const festOk = !audioEngine.festivalEl || !audioEngine.festivalEl.paused;
+      if (stageOk && festOk) {
+        audioEngine.needsUnlock = false;
+        updateAudioUnlockBanner();
+      }
+    }).catch(() => {});
+  }
+  if (state.musicEnabled) {
+    if (audioEngine.mp3El && audioEngine.mp3El.src && audioEngine.mp3El.paused) {
+      safePlayMediaElement(audioEngine.mp3El, 'stage-resume');
+    }
+    if (audioEngine.festivalEl && audioEngine.festivalEl.src && audioEngine.festivalEl.paused) {
+      safePlayMediaElement(audioEngine.festivalEl, 'festival-resume');
+    }
+  }
+  // Also unlock any remote WebRTC peer voice elements whose autoplay was blocked
+  for (const [, entry] of voiceState.peers) {
+    if (entry.audioEl && entry.audioEl.paused) {
+      entry.audioEl.play().catch(() => {});
+    }
+  }
+  if (showConfirmation) {
+    audioEngine.needsUnlock = false;
+    updateAudioUnlockBanner();
+    showToast('🔊 เปิดเสียงเพลงและเสียงพูดคุยเรียบร้อยแล้ว!');
+  }
+}
+
+// Synchronous audio bootstrap — MUST run directly inside a user tap/click gesture (zero awaits before .play())
+function initConcertAudio() {
   if (audioEngine.started) {
-    if (audioEngine.ctx && audioEngine.ctx.state === 'suspended') {
-      await audioEngine.ctx.resume();
-    }
-    if (audioEngine.usingPlaylist && audioEngine.mp3El && audioEngine.mp3El.paused) {
-      audioEngine.mp3El.play().catch(() => {});
-    }
-    if (audioEngine.festivalEl && audioEngine.festivalEl.paused && audioEngine.festivalTracks.length > 0) {
-      audioEngine.festivalEl.play().catch(() => {});
-    }
+    unlockAndResumeAudio(false);
     return;
   }
 
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return;
+  if (AudioCtx) {
+    try {
+      audioEngine.ctx = new AudioCtx();
+      if (audioEngine.ctx.state === 'suspended') {
+        audioEngine.ctx.resume().catch(() => {});
+      }
+      audioEngine.concertGain = audioEngine.ctx.createGain();
+      audioEngine.concertGain.gain.value = 0.0;
+      if (typeof audioEngine.ctx.createStereoPanner === 'function') {
+        audioEngine.concertPanner = audioEngine.ctx.createStereoPanner();
+        audioEngine.concertGain.connect(audioEngine.concertPanner);
+        audioEngine.concertPanner.connect(audioEngine.ctx.destination);
+      } else {
+        audioEngine.concertGain.connect(audioEngine.ctx.destination);
+      }
+      audioEngine.festivalGain = audioEngine.ctx.createGain();
+      audioEngine.festivalGain.gain.value = 0.0;
+      audioEngine.festivalGain.connect(audioEngine.ctx.destination);
+    } catch (err) {
+      console.warn('AudioContext init warning:', err);
+      audioEngine.useWebAudioForMedia = false;
+    }
+  } else {
+    audioEngine.useWebAudioForMedia = false;
+  }
 
-  audioEngine.ctx = new AudioCtx();
-  audioEngine.concertGain = audioEngine.ctx.createGain();
-  audioEngine.concertGain.gain.value = 0.0;
-  audioEngine.concertPanner = audioEngine.ctx.createStereoPanner();
-  audioEngine.concertGain.connect(audioEngine.concertPanner);
-  audioEngine.concertPanner.connect(audioEngine.ctx.destination);
-
-  audioEngine.festivalGain = audioEngine.ctx.createGain();
-  audioEngine.festivalGain.gain.value = 0.0;
-  audioEngine.festivalGain.connect(audioEngine.ctx.destination);
   audioEngine.started = true;
 
-  // Fetch Zone 1 (Concert Stage) & Zone 2 (Festival Ambient) playlists in parallel
-  const fetches = [];
-  if (audioEngine.tracks.length === 0) {
-    fetches.push(
-      fetch(apiUrl('/api/stage-tracks'))
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (Array.isArray(data?.tracks)) audioEngine.tracks = data.tracks;
-        })
-        .catch(() => {})
-    );
-  }
-  if (audioEngine.festivalTracks.length === 0) {
-    fetches.push(
-      fetch(apiUrl('/api/festival-tracks'))
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (Array.isArray(data?.tracks)) audioEngine.festivalTracks = data.tracks;
-        })
-        .catch(() => {})
-    );
-  }
-  if (fetches.length > 0) {
-    await Promise.all(fetches);
-  }
+  // Create & bless BOTH audio elements synchronously inside the user tap gesture
+  const stageEl = ensureStageAudioElement();
+  const festEl = ensureFestivalAudioElement();
 
-  // Start Zone 2 (Festival Ambient) auto-loop if files exist in public/audio-festival/
   if (audioEngine.festivalTracks.length > 0) {
     playFestivalTrack(0);
+  } else if (festEl) {
+    festEl.src = SILENT_WAV_DATA_URI;
+    festEl.play().catch(() => {});
   }
 
-  // Start Zone 1 (Concert Stage) playlist or fallback 120 BPM synth
   if (audioEngine.tracks.length > 0) {
     if (audioEngine.currentTrack) {
       applyRoomStageTrack(audioEngine.currentTrack);
     } else {
       playStagePlaylistTrack(0, null, 'เวทีคอนเสิร์ต');
     }
-    return;
+  } else {
+    if (stageEl) {
+      stageEl.src = SILENT_WAV_DATA_URI;
+      stageEl.play().catch(() => {});
+    }
+    // Kick off fetch in background; once tracks arrive, preloadAudioTrackLists() swaps into real MP3s
+    preloadAudioTrackLists().then(() => {
+      if (audioEngine.tracks.length === 0) {
+        startSynth120BPM();
+      }
+    });
   }
-
-  startSynth120BPM();
 }
 
 function startSynth120BPM() {
-  if (audioEngine.synthTimer) return;
+  if (audioEngine.synthTimer || !audioEngine.ctx || !audioEngine.concertGain) return;
   // Thai pentatonic scale (C major pentatonic: C, D, E, G, A)
   const melodyFreqs = [523.25, 587.33, 659.25, 783.99, 880.0, 783.99, 659.25, 587.33];
   const bassFreqs = [130.81, 130.81, 146.83, 164.81, 196.0, 196.0, 146.83, 164.81];
@@ -3331,43 +3491,63 @@ function startSynth120BPM() {
   }, 125);
 }
 
-function updateSpatialConcertAudio(playerPos) {
-  if (!audioEngine.concertGain || !audioEngine.ctx) return;
-  const now = audioEngine.ctx.currentTime;
-  if (!state.musicEnabled) {
-    audioEngine.concertGain.gain.setTargetAtTime(0, now, 0.06);
-    if (audioEngine.festivalGain) {
-      audioEngine.festivalGain.gain.setTargetAtTime(0, now, 0.06);
+function updateSpatialConcertAudio(playerPos, dt = 0.016) {
+  if (!audioEngine.started) return;
+
+  let targetConcertVol = 0;
+  let targetFestivalVol = 0;
+  let concertZoneWeight = 0;
+
+  if (state.musicEnabled) {
+    // Distance outside the Concert Stage Zone rectangle (0 = inside red box, >=fadeWidth = fully outside)
+    const dx = Math.max(0, CONCERT_AUDIO_ZONE.minX - playerPos.x, playerPos.x - CONCERT_AUDIO_ZONE.maxX);
+    const dz = Math.max(0, CONCERT_AUDIO_ZONE.minZ - playerPos.z, playerPos.z - CONCERT_AUDIO_ZONE.maxZ);
+    const distOutside = Math.hypot(dx, dz);
+    const t = THREE.MathUtils.clamp(distOutside / CONCERT_AUDIO_ZONE.fadeWidth, 0, 1);
+    const smoothT = t * t * (3 - 2 * t);
+
+    // Zone 1 (Concert Stage): full inside red box (extra punch near front of stage), fades smoothly to 0 outside
+    concertZoneWeight = 1 - smoothT;
+    const distToStage = playerPos.distanceTo(CONCERT_POS);
+    const proximityBoost = 0.65 + 0.35 * Math.max(0, 1 - Math.max(0, distToStage - 8) / 48);
+    targetConcertVol = concertZoneWeight * proximityBoost * 0.56;
+
+    // Zone 2 (Festival Ambient): 0% inside concert red box, fades smoothly to clear comfortable ambient outside
+    targetFestivalVol = audioEngine.festivalTracks.length > 0 ? smoothT * 0.34 : 0;
+  }
+
+  // Smooth exponential volume lerp
+  const alpha = Math.min(1, dt * 8);
+  audioEngine.concertCurVol += (targetConcertVol - audioEngine.concertCurVol) * alpha;
+  audioEngine.festivalCurVol += (targetFestivalVol - audioEngine.festivalCurVol) * alpha;
+  const cVol = audioEngine.concertCurVol < 0.002 ? 0 : THREE.MathUtils.clamp(audioEngine.concertCurVol, 0, 1);
+  const fVol = audioEngine.festivalCurVol < 0.002 ? 0 : THREE.MathUtils.clamp(audioEngine.festivalCurVol, 0, 1);
+
+  if (audioEngine.useWebAudioForMedia && audioEngine.ctx && audioEngine.concertGain) {
+    // iOS/iPadOS path (HTMLMediaElement.volume is read-only -> control via Web Audio GainNodes)
+    const now = audioEngine.ctx.currentTime;
+    audioEngine.concertGain.gain.setTargetAtTime(cVol, now, 0.08);
+    if (audioEngine.concertPanner && concertZoneWeight > 0.01) {
+      _audioToStage.copy(CONCERT_POS).sub(playerPos).normalize();
+      _audioCamRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      const pan = THREE.MathUtils.clamp(_audioToStage.dot(_audioCamRight), -0.82, 0.82);
+      audioEngine.concertPanner.pan.setTargetAtTime(pan, now, 0.08);
     }
-    return;
-  }
-
-  // Distance outside the Concert Stage Zone rectangle (0 = inside red box, >=fadeWidth = fully outside)
-  const dx = Math.max(0, CONCERT_AUDIO_ZONE.minX - playerPos.x, playerPos.x - CONCERT_AUDIO_ZONE.maxX);
-  const dz = Math.max(0, CONCERT_AUDIO_ZONE.minZ - playerPos.z, playerPos.z - CONCERT_AUDIO_ZONE.maxZ);
-  const distOutside = Math.hypot(dx, dz);
-  const t = THREE.MathUtils.clamp(distOutside / CONCERT_AUDIO_ZONE.fadeWidth, 0, 1);
-  const smoothT = t * t * (3 - 2 * t);
-
-  // Zone 1 (Concert Stage): 100% inside red box (extra punch near front of stage), fades smoothly to 0 outside
-  const concertZoneWeight = 1 - smoothT;
-  const distToStage = playerPos.distanceTo(CONCERT_POS);
-  const proximityBoost = 0.62 + 0.38 * Math.max(0, 1 - Math.max(0, distToStage - 8) / 48);
-  const concertVol = concertZoneWeight * proximityBoost * 0.50;
-  audioEngine.concertGain.gain.setTargetAtTime(concertVol, now, 0.09);
-
-  // Stereo pan relative to camera right vector when Concert Stage is audible
-  if (concertZoneWeight > 0.01) {
-    const toStage = CONCERT_POS.clone().sub(playerPos);
-    const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-    const pan = THREE.MathUtils.clamp(toStage.normalize().dot(camRight), -0.82, 0.82);
-    audioEngine.concertPanner.pan.setTargetAtTime(pan, now, 0.08);
-  }
-
-  // Zone 2 (Festival Ambient): 0% inside concert red box, fades smoothly to steady comfortable ambient outside
-  if (audioEngine.festivalGain) {
-    const festivalVol = audioEngine.festivalTracks.length > 0 ? smoothT * 0.24 : 0;
-    audioEngine.festivalGain.gain.setTargetAtTime(festivalVol, now, 0.1);
+    if (audioEngine.festivalGain) {
+      audioEngine.festivalGain.gain.setTargetAtTime(fVol, now, 0.09);
+    }
+  } else {
+    // Android & Desktop path: native HTMLMediaElement.volume (rock-solid with WebRTC mic & hardware decoding!)
+    if (audioEngine.mp3El) {
+      audioEngine.mp3El.volume = cVol;
+    }
+    if (audioEngine.festivalEl) {
+      audioEngine.festivalEl.volume = fVol;
+    }
+    // Keep Web Audio concertGain synced only when using 120 BPM synth fallback
+    if (audioEngine.synthTimer && audioEngine.ctx && audioEngine.concertGain) {
+      audioEngine.concertGain.gain.setTargetAtTime(cVol, audioEngine.ctx.currentTime, 0.08);
+    }
   }
 }
 
@@ -3376,52 +3556,153 @@ function updateSpatialConcertAudio(playerPos) {
 // ============================================================================
 
 const rtcConfig = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' }
+  ]
 };
 
 const voiceState = {
   localStream: null,
   micGranted: false,
-  peers: new Map() // peerId -> { pc, audioEl, gainNode, sourceNode }
+  requestingMic: false,
+  micPromise: null,
+  peers: new Map() // peerId -> { pc, audioEl, gainNode, sourceNode, pendingCandidates, makingOffer, ignoreOffer }
 };
 
+async function attachLocalTrackToPeer(peerId, entry, track, stream) {
+  if (!entry?.pc || entry.pc.signalingState === 'closed') return;
+  try {
+    const transceivers = entry.pc.getTransceivers ? entry.pc.getTransceivers() : [];
+    const audioTx = transceivers.find(
+      (t) =>
+        (t.sender && t.sender.track && t.sender.track.kind === 'audio') ||
+        (t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') ||
+        (t.mid !== null && t.sender && !t.sender.track)
+    );
+    if (audioTx && audioTx.sender && typeof audioTx.sender.replaceTrack === 'function') {
+      if (audioTx.direction === 'recvonly' || audioTx.direction === 'inactive') {
+        audioTx.direction = 'sendrecv';
+      }
+      await audioTx.sender.replaceTrack(track);
+      // If transceiver was previously negotiated as recvonly, renegotiate once so remote hears us
+      if (audioTx.currentDirection === 'recvonly' || audioTx.currentDirection === 'inactive') {
+        await negotiateWithPeer(peerId);
+      }
+      return;
+    }
+    const senders = entry.pc.getSenders();
+    if (!senders.some((s) => s.track === track)) {
+      entry.pc.addTrack(track, stream);
+      await negotiateWithPeer(peerId);
+    }
+  } catch (err) {
+    console.warn('Attach local audio track error:', err);
+  }
+}
+
+async function negotiateWithPeer(peerId) {
+  const entry = voiceState.peers.get(peerId);
+  if (!entry || !socket || entry.pc.signalingState === 'closed') return;
+  if (entry.makingOffer) return;
+  try {
+    entry.makingOffer = true;
+    const offer = await entry.pc.createOffer();
+    if (entry.pc.signalingState !== 'stable') return;
+    await entry.pc.setLocalDescription(offer);
+    socket.emit('webrtc:offer', { to: peerId, offer: entry.pc.localDescription });
+  } catch (err) {
+    console.warn('WebRTC negotiate error:', err);
+  } finally {
+    entry.makingOffer = false;
+  }
+}
+
+async function flushPendingIceCandidates(entry) {
+  if (!entry || !entry.pc.remoteDescription || entry.pendingCandidates.length === 0) return;
+  const queued = entry.pendingCandidates.splice(0, entry.pendingCandidates.length);
+  for (const cand of queued) {
+    try {
+      await entry.pc.addIceCandidate(new RTCIceCandidate(cand));
+    } catch {}
+  }
+}
+
 async function requestMicrophoneAccess(silent = false) {
-  if (voiceState.localStream) return true;
+  if (voiceState.localStream) {
+    const liveTrack = voiceState.localStream.getAudioTracks().find((t) => t.readyState === 'live');
+    if (liveTrack) return true;
+    voiceState.localStream = null;
+    voiceState.micGranted = false;
+  }
+  if (voiceState.micPromise) return voiceState.micPromise;
+
+  if (!window.isSecureContext) {
+    dom.micStateText.textContent = 'ไมค์: ต้องใช้ HTTPS';
+    if (!silent) {
+      showToast('🔒 ต้องเปิดเว็บไซต์ผ่าน HTTPS เพื่อใช้งานไมโครโฟน');
+    }
+    return false;
+  }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     dom.micStateText.textContent = 'ไมค์: ไม่รองรับ';
+    if (!silent) {
+      showToast('🎤 เบราว์เซอร์นี้ไม่รองรับไมค์ กรุณาเปิดด้วย Chrome หรือ Safari');
+    }
     return false;
   }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    });
-    stream.getAudioTracks().forEach((t) => { t.enabled = false; });
-    voiceState.localStream = stream;
-    voiceState.micGranted = true;
-    dom.micStateText.textContent = 'ไมค์: พร้อม';
 
-    // Attach local audio tracks to any existing peer connections
-    for (const [, peer] of voiceState.peers) {
-      const senders = peer.pc.getSenders();
-      stream.getAudioTracks().forEach((track) => {
-        if (!senders.some((s) => s.track === track)) {
-          peer.pc.addTrack(track, stream);
+  voiceState.requestingMic = true;
+  voiceState.micPromise = (async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
         }
       });
+      stream.getAudioTracks().forEach((t) => {
+        t.enabled = false;
+      });
+      voiceState.localStream = stream;
+      voiceState.micGranted = true;
+      dom.micStateText.textContent = 'ไมค์: พร้อม';
+
+      // Mobile iOS/Android can pause <audio> or suspend AudioContext when getUserMedia activates -> re-unlock!
+      setTimeout(() => unlockAndResumeAudio(false), 120);
+
+      // Attach local audio track to all existing proximity peers via replaceTrack / renegotiate
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        const tasks = [];
+        for (const [peerId, peer] of voiceState.peers) {
+          tasks.push(attachLocalTrackToPeer(peerId, peer, audioTrack, stream));
+        }
+        await Promise.all(tasks);
+      }
+      return true;
+    } catch (err) {
+      voiceState.micGranted = false;
+      dom.micStateText.textContent = 'ไมค์: ปิดสิทธิ์';
+      setTimeout(() => unlockAndResumeAudio(false), 120);
+      if (!silent) {
+        const deniedMsg =
+          err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError'
+            ? '🎤 ไม่ได้รับสิทธิ์ไมโครโฟน กรุณากดอนุญาตไมค์ที่แถบที่อยู่ด้านบนเบราว์เซอร์'
+            : '🎤 ไม่สามารถเปิดไมโครโฟนได้ (ยังสามารถฟังเพื่อนและแชตข้อความได้)';
+        showToast(deniedMsg);
+      }
+      return false;
+    } finally {
+      voiceState.requestingMic = false;
+      voiceState.micPromise = null;
     }
-    return true;
-  } catch (err) {
-    voiceState.micGranted = false;
-    dom.micStateText.textContent = 'ไมค์: ปิดสิทธิ์';
-    if (!silent) {
-      showToast('ไม่สามารถเข้าถึงไมโครโฟนได้ (ยังสามารถฟังเพื่อนและแชตข้อความได้)');
-    }
-    return false;
-  }
+  })();
+
+  return voiceState.micPromise;
 }
 
 function createPeerConnection(peerId) {
@@ -3434,14 +3715,19 @@ function createPeerConnection(peerId) {
     pc,
     audioEl: null,
     gainNode: null,
-    sourceNode: null
+    sourceNode: null,
+    pendingCandidates: [],
+    makingOffer: false,
+    ignoreOffer: false
   };
   voiceState.peers.set(peerId, peerEntry);
 
-  if (voiceState.localStream) {
-    voiceState.localStream.getAudioTracks().forEach((track) => {
-      pc.addTrack(track, voiceState.localStream);
-    });
+  // Always establish a bidirectional sendrecv audio channel so voice works even if mic is granted later!
+  const localTrack = voiceState.localStream?.getAudioTracks().find((t) => t.readyState === 'live');
+  if (localTrack) {
+    pc.addTrack(localTrack, voiceState.localStream);
+  } else if (typeof pc.addTransceiver === 'function') {
+    pc.addTransceiver('audio', { direction: 'sendrecv' });
   }
 
   pc.onicecandidate = (e) => {
@@ -3451,18 +3737,18 @@ function createPeerConnection(peerId) {
   };
 
   pc.ontrack = (e) => {
-    const stream = e.streams[0];
+    const stream = (e.streams && e.streams[0]) || new MediaStream([e.track]);
     if (!stream) return;
 
     if (!peerEntry.audioEl) {
       const audioEl = document.createElement('audio');
       audioEl.autoplay = true;
-      audioEl.playsInline = true;
+      attachMediaElementToSink(audioEl);
       audioEl.srcObject = stream;
       peerEntry.audioEl = audioEl;
 
-      if (audioEngine.ctx) {
-        // Mute raw element and route via Web Audio GainNode for smooth proximity volume
+      if (IS_VOLUME_READONLY && audioEngine.ctx) {
+        // iOS/iPadOS only: route via Web Audio GainNode because audioEl.volume is read-only
         audioEl.muted = true;
         try {
           const src = audioEngine.ctx.createMediaStreamSource(stream);
@@ -3474,8 +3760,19 @@ function createPeerConnection(peerId) {
         } catch {
           audioEl.muted = false;
         }
+      } else {
+        // Android Chrome & Desktop: keep unmuted direct playback (avoids Chromium silent MediaStreamSource bug!)
+        audioEl.muted = false;
+        audioEl.volume = 1.0;
       }
-      audioEl.play().catch(() => {});
+
+      audioEl.play().catch(() => {
+        audioEngine.needsUnlock = true;
+        updateAudioUnlockBanner();
+      });
+    } else if (peerEntry.audioEl.srcObject !== stream) {
+      peerEntry.audioEl.srcObject = stream;
+      peerEntry.audioEl.play().catch(() => {});
     }
   };
 
@@ -3492,8 +3789,14 @@ function cleanupPeerConnection(peerId) {
   const entry = voiceState.peers.get(peerId);
   if (!entry) return;
   try { entry.pc.close(); } catch {}
+  try {
+    if (entry.sourceNode) entry.sourceNode.disconnect();
+    if (entry.gainNode) entry.gainNode.disconnect();
+  } catch {}
   if (entry.audioEl) {
+    entry.audioEl.pause();
     entry.audioEl.srcObject = null;
+    entry.audioEl.remove();
   }
   voiceState.peers.delete(peerId);
 }
@@ -3514,18 +3817,42 @@ function updateProximityVoiceVolumes() {
     if (entry.gainNode && audioEngine.ctx) {
       entry.gainNode.gain.setTargetAtTime(gainVal, audioEngine.ctx.currentTime, 0.06);
     } else if (entry.audioEl) {
-      entry.audioEl.volume = gainVal;
+      entry.audioEl.volume = THREE.MathUtils.clamp(gainVal, 0, 1);
     }
   }
 }
 
-async function setPushToTalk(active) {
-  if (!state.joined) return;
+function syncPttButtonVisuals() {
+  const active = state.isSpeaking;
+  dom.btnPtt.classList.toggle('active', active);
+  dom.btnPtt.setAttribute('aria-pressed', String(active));
+  const txt = dom.btnPtt.querySelector('.ptt-text');
+  if (txt) {
+    txt.textContent = active
+      ? state.voiceLockedOn
+        ? 'กำลังพูด (แตะปิด)'
+        : 'กำลังพูด...'
+      : 'แตะ/กดค้างพูด (V)';
+  }
+}
+
+let pttOpToken = 0;
+async function setPushToTalk(active, { autoLockAfterGrant = false } = {}) {
+  if (!state.joined) return false;
+  const myToken = ++pttOpToken;
+
   if (active && !voiceState.localStream) {
     const ok = await requestMicrophoneAccess(false);
-    if (!ok) return;
+    if (!ok || myToken !== pttOpToken) return false;
+    if (autoLockAfterGrant) {
+      state.voiceLockedOn = true;
+    }
   }
-  if (state.isSpeaking === active) return;
+
+  if (state.isSpeaking === active) {
+    syncPttButtonVisuals();
+    return true;
+  }
 
   state.isSpeaking = active;
   if (voiceState.localStream) {
@@ -3534,8 +3861,7 @@ async function setPushToTalk(active) {
     });
   }
 
-  dom.btnPtt.classList.toggle('active', active);
-  dom.btnPtt.setAttribute('aria-pressed', String(active));
+  syncPttButtonVisuals();
 
   const self = state.players.get(state.selfId);
   if (self) {
@@ -3545,6 +3871,7 @@ async function setPushToTalk(active) {
   if (socket) {
     socket.emit('voice:speaking', { speaking: active });
   }
+  return true;
 }
 
 // ============================================================================
@@ -3552,6 +3879,7 @@ async function setPushToTalk(active) {
 // ============================================================================
 
 let socket = null;
+let previewDisposed = false;
 
 function appendChatMessage(msg) {
   const li = document.createElement('li');
@@ -3615,14 +3943,8 @@ async function syncProximityVoicePeers() {
     if (voiceState.peers.has(peerId)) continue;
     if (voiceState.peers.size >= MAX_VOICE_PEERS) break;
     if (state.selfId > peerId) {
-      const entry = createPeerConnection(peerId);
-      try {
-        const offer = await entry.pc.createOffer();
-        await entry.pc.setLocalDescription(offer);
-        socket.emit('webrtc:offer', { to: peerId, offer });
-      } catch (err) {
-        console.warn('WebRTC proximity offer error:', err);
-      }
+      createPeerConnection(peerId);
+      await negotiateWithPeer(peerId);
     }
   }
 }
@@ -3682,12 +4004,16 @@ function connectSocketAndJoin() {
           dom.hudNickname.textContent = state.nickname;
           updateOnlineCounter();
 
-          // Release the Lobby's 2nd WebGL context to free mobile VRAM immediately
-          try {
-            previewRenderer.dispose();
-            previewRenderer.forceContextLoss();
-          } catch {}
+          // Release the Lobby's 2nd WebGL context once to free mobile VRAM immediately
+          if (!previewDisposed) {
+            previewDisposed = true;
+            try {
+              previewRenderer.dispose();
+              previewRenderer.forceContextLoss();
+            } catch {}
+          }
 
+          updateAudioUnlockBanner();
           if (voiceSyncTimer) clearInterval(voiceSyncTimer);
           voiceSyncTimer = setInterval(syncProximityVoicePeers, 2000);
           syncProximityVoicePeers();
@@ -3696,11 +4022,29 @@ function connectSocketAndJoin() {
     );
   });
 
+  socket.on('disconnect', () => {
+    state.voiceLockedOn = false;
+    setPushToTalk(false);
+    for (const [peerId] of Array.from(voiceState.peers)) {
+      cleanupPeerConnection(peerId);
+    }
+  });
+
   socket.on('world:init', (data) => {
     state.selfId = data.selfId;
     if (data.roomId) state.roomId = data.roomId;
     if (data.roomName) state.roomName = data.roomName;
     if (data.roomMax) state.roomMax = data.roomMax;
+
+    // Prune stale avatars left behind after mobile Wi-Fi/4G reconnection (prevents ghost duplicates!)
+    const incomingIds = new Set((data.players || []).map((p) => p.id));
+    for (const [existingId] of Array.from(state.players)) {
+      if (!incomingIds.has(existingId)) {
+        removePlayer(existingId);
+      }
+    }
+    lastNetSent.x = NaN;
+
     dom.chatMessages.replaceChildren();
     (data.recentChats || []).forEach(appendChatMessage);
     (data.players || []).forEach((p) => spawnOrUpdatePlayer(p));
@@ -3712,7 +4056,7 @@ function connectSocketAndJoin() {
     if (Array.isArray(data.festivalTracks) && data.festivalTracks.length > 0) {
       const hadNone = audioEngine.festivalTracks.length === 0;
       audioEngine.festivalTracks = data.festivalTracks;
-      if (hadNone && audioEngine.started && !audioEngine.festivalEl) {
+      if (hadNone && audioEngine.started && !audioEngine.festivalEl?.dataset.trackLoaded) {
         playFestivalTrack(0);
       }
     }
@@ -3720,10 +4064,12 @@ function connectSocketAndJoin() {
       applyRoomStageTrack(data.stageTrack);
     }
     updateOnlineCounter();
+    syncProximityVoicePeers();
   });
 
   socket.on('player:joined', (p) => {
     spawnOrUpdatePlayer(p);
+    syncProximityVoicePeers();
   });
 
   function applyRemoteMove(d) {
@@ -3785,16 +4131,25 @@ function connectSocketAndJoin() {
     removePlayer(d.id);
   });
 
-  // Proximity-scoped WebRTC Signaling handlers (max 6 nearby peers per client)
+  // Proximity-scoped WebRTC Signaling handlers (Perfect Negotiation + ICE candidate queue)
   socket.on('webrtc:offer', async ({ from, offer }) => {
     if (!from || !offer) return;
     if (!voiceState.peers.has(from) && voiceState.peers.size >= MAX_VOICE_PEERS) return;
     const entry = createPeerConnection(from);
+    const isPolite = state.selfId < from;
+    const offerCollision = entry.makingOffer || entry.pc.signalingState !== 'stable';
+    entry.ignoreOffer = !isPolite && offerCollision;
+    if (entry.ignoreOffer) return;
+
     try {
+      if (offerCollision) {
+        await entry.pc.setLocalDescription({ type: 'rollback' });
+      }
       await entry.pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await flushPendingIceCandidates(entry);
       const answer = await entry.pc.createAnswer();
       await entry.pc.setLocalDescription(answer);
-      socket.emit('webrtc:answer', { to: from, answer });
+      socket.emit('webrtc:answer', { to: from, answer: entry.pc.localDescription });
     } catch (err) {
       console.warn('WebRTC answer error:', err);
     }
@@ -3804,7 +4159,9 @@ function connectSocketAndJoin() {
     const entry = voiceState.peers.get(from);
     if (!entry || !answer) return;
     try {
+      if (entry.pc.signalingState !== 'have-local-offer') return;
       await entry.pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await flushPendingIceCandidates(entry);
     } catch (err) {
       console.warn('WebRTC setRemoteDescription error:', err);
     }
@@ -3813,9 +4170,17 @@ function connectSocketAndJoin() {
   socket.on('webrtc:ice', async ({ from, candidate }) => {
     const entry = voiceState.peers.get(from);
     if (!entry || !candidate) return;
+    if (!entry.pc.remoteDescription) {
+      entry.pendingCandidates.push(candidate);
+      return;
+    }
     try {
       await entry.pc.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch {}
+    } catch (err) {
+      if (!entry.ignoreOffer) {
+        console.warn('WebRTC ICE error:', err);
+      }
+    }
   });
 }
 
@@ -4219,7 +4584,7 @@ document.addEventListener('webkitfullscreenchange', () => {
 // Lobby Form Bindings
 dom.optLowGfx.checked = state.lowGraphics;
 
-dom.lobbyForm.addEventListener('submit', async (e) => {
+dom.lobbyForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const nick = dom.inputNickname.value.trim();
   if (!nick) {
@@ -4230,19 +4595,22 @@ dom.lobbyForm.addEventListener('submit', async (e) => {
   state.selectedRoomId = dom.selectRoom ? dom.selectRoom.value : 'auto';
   applyGraphicsMode(dom.optLowGfx.checked);
 
-  // Auto-request fullscreen synchronously on Android/touch devices inside the user tap gesture
-  if (window.matchMedia('(pointer: coarse)').matches) {
-    requestAppFullscreen();
-  }
+  // 1. Unlock AudioContext + both audio elements SYNCHRONOUSLY inside the tap gesture (zero awaits!)
+  initConcertAudio();
 
-  await initConcertAudio();
-  if (dom.optMic.checked) {
-    await requestMicrophoneAccess(true);
+  // 2. Only auto-fullscreen on touch devices if mic prompt won't collide with fullscreen transition
+  if (window.matchMedia('(pointer: coarse)').matches && !dom.optMic.checked) {
+    requestAppFullscreen();
   }
 
   applyMinimapState();
   applyChatCollapsedState();
   connectSocketAndJoin();
+
+  // 3. Request mic cleanly without blocking entry or expiring the audio user gesture
+  if (dom.optMic.checked) {
+    requestMicrophoneAccess(true);
+  }
 });
 
 // HUD Buttons
@@ -4276,21 +4644,65 @@ dom.minimapToggle.addEventListener('click', () => {
   applyMinimapState();
 });
 
-dom.btnMusicToggle.addEventListener('click', async () => {
-  await initConcertAudio();
+dom.btnMusicToggle.addEventListener('click', () => {
   state.musicEnabled = !state.musicEnabled;
   dom.btnMusicToggle.setAttribute('aria-pressed', String(state.musicEnabled));
   const lbl = dom.btnMusicToggle.querySelector('.btn-label');
   if (lbl) lbl.textContent = state.musicEnabled ? 'เพลง: เปิด' : 'เพลง: ปิด';
+
+  if (state.musicEnabled) {
+    unlockAndResumeAudio(false);
+    // Re-sync live concert stage track timestamp when unmuting
+    if (audioEngine.currentTrack && audioEngine.mp3El?.dataset.trackLoaded) {
+      applyRoomStageTrack(audioEngine.currentTrack);
+    }
+  } else {
+    audioEngine.needsUnlock = false;
+    updateAudioUnlockBanner();
+    if (audioEngine.mp3El && !audioEngine.mp3El.paused) {
+      audioEngine.mp3El.pause();
+    }
+    if (audioEngine.festivalEl && !audioEngine.festivalEl.paused) {
+      audioEngine.festivalEl.pause();
+    }
+  }
 });
+
+if (dom.btnAudioUnlock) {
+  dom.btnAudioUnlock.addEventListener('click', () => {
+    unlockAndResumeAudio(true);
+  });
+}
+
+// Global mobile gesture unlock hook (recovers audio on first touch if mobile browser suspended autoplay)
+function handleGlobalAudioGesture() {
+  if (!state.joined) return;
+  const ctxSuspended = audioEngine.ctx && audioEngine.ctx.state === 'suspended';
+  const stagePaused =
+    state.musicEnabled &&
+    audioEngine.started &&
+    audioEngine.mp3El?.dataset.trackLoaded &&
+    audioEngine.mp3El.paused;
+  const festPaused =
+    state.musicEnabled &&
+    audioEngine.started &&
+    audioEngine.festivalEl?.dataset.trackLoaded &&
+    audioEngine.festivalEl.paused;
+  if (audioEngine.needsUnlock || ctxSuspended || stagePaused || festPaused) {
+    unlockAndResumeAudio(false);
+  }
+}
+window.addEventListener('pointerdown', handleGlobalAudioGesture, { passive: true });
+window.addEventListener('touchend', handleGlobalAudioGesture, { passive: true });
 
 dom.btnGfxToggle.addEventListener('click', () => {
   applyGraphicsMode(!state.lowGraphics);
 });
 
 dom.btnMicSetup.addEventListener('click', async () => {
+  unlockAndResumeAudio(false);
   const ok = await requestMicrophoneAccess(false);
-  if (ok) showToast('ไมโครโฟนพร้อมใช้งาน กดปุ่ม V หรือแตะปุ่มไมค์ค้างไว้เพื่อพูด');
+  if (ok) showToast('ไมโครโฟนพร้อมใช้งาน แตะปุ่มไมค์เพื่อเปิด/ปิด หรือกดค้าง / กด V เพื่อพูด');
 });
 
 if (dom.btnChatFab) {
@@ -4334,15 +4746,110 @@ function triggerSelfWave() {
 
 dom.btnWave.addEventListener('click', triggerSelfWave);
 
-// Push-to-Talk Touch & Pointer Button
+// Smart Dual-Mode Voice Button (Mobile & PC):
+// - Quick Tap (<350ms): Toggles hands-free mic ON/OFF (ideal while walking with mobile joystick!)
+// - Press & Hold (>=350ms): Classic Push-to-Talk (mutes automatically on release)
+let pttActivePointerId = null;
+let pttPressStartAt = 0;
+let pttWasLockedOnDown = false;
+let pttTapHintShown = false;
+
+dom.btnPtt.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+});
+
 dom.btnPtt.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  setPushToTalk(true);
+  e.stopPropagation();
+  unlockAndResumeAudio(false);
+
+  if (pttActivePointerId !== null) return;
+  pttActivePointerId = e.pointerId;
+  pttPressStartAt = performance.now();
+  pttWasLockedOnDown = state.voiceLockedOn;
+
+  try {
+    dom.btnPtt.setPointerCapture(e.pointerId);
+  } catch {}
+
+  if (!pttWasLockedOnDown) {
+    // If mic hasn't been granted yet, auto-lock ON once user approves OS mic popup!
+    const needsGrant = !voiceState.localStream;
+    setPushToTalk(true, { autoLockAfterGrant: needsGrant });
+  }
 });
-dom.btnPtt.addEventListener('pointerup', () => setPushToTalk(false));
-dom.btnPtt.addEventListener('pointercancel', () => setPushToTalk(false));
-dom.btnPtt.addEventListener('pointerleave', () => {
-  if (state.isSpeaking) setPushToTalk(false);
+
+dom.btnPtt.addEventListener('pointerup', (e) => {
+  if (e.pointerId !== pttActivePointerId) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const heldMs = performance.now() - pttPressStartAt;
+  pttActivePointerId = null;
+
+  try {
+    if (dom.btnPtt.hasPointerCapture(e.pointerId)) {
+      dom.btnPtt.releasePointerCapture(e.pointerId);
+    }
+  } catch {}
+
+  // If user tapped while mic was already locked ON -> turn mic OFF
+  if (pttWasLockedOnDown) {
+    state.voiceLockedOn = false;
+    setPushToTalk(false);
+    return;
+  }
+
+  // If OS mic permission dialog is still open, let setPushToTalk resolve & auto-lock cleanly
+  if (voiceState.requestingMic) {
+    return;
+  }
+
+  // Quick tap (<350ms) with mic granted -> latch hands-free mode ON
+  if (heldMs < 350 && voiceState.micGranted) {
+    state.voiceLockedOn = true;
+    syncPttButtonVisuals();
+    if (!pttTapHintShown) {
+      pttTapHintShown = true;
+      showToast('🎙️ เปิดไมค์คุยอยู่ (แตะปุ่มไมค์อีกครั้งเพื่อปิด)');
+    }
+    return;
+  }
+
+  // Press & hold (>=350ms) -> classic Push-to-Talk release
+  state.voiceLockedOn = false;
+  setPushToTalk(false);
+});
+
+dom.btnPtt.addEventListener('pointercancel', (e) => {
+  if (e.pointerId !== pttActivePointerId) return;
+  pttActivePointerId = null;
+  if (!state.voiceLockedOn && !voiceState.requestingMic) {
+    setPushToTalk(false);
+  }
+});
+
+// Safety guards: prevent stuck movement keys, stuck joystick, or hot mic when switching apps/tabs
+window.addEventListener('blur', () => {
+  state.keys.clear();
+  if (state.joystick.active) {
+    joyPointerId = null;
+    state.joystick.active = false;
+    state.joystick.dx = 0;
+    state.joystick.dy = 0;
+    dom.joystickKnob.style.transform = 'translate(0px, 0px)';
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    state.keys.clear();
+    if (state.isSpeaking || state.voiceLockedOn) {
+      state.voiceLockedOn = false;
+      setPushToTalk(false);
+    }
+  } else if (state.joined) {
+    unlockAndResumeAudio(false);
+  }
 });
 
 // Keyboard Controls (PC)
@@ -4359,13 +4866,14 @@ window.addEventListener('keydown', (e) => {
     triggerSelfWave();
   }
   if (code === 'KeyV' && !e.repeat) {
+    state.voiceLockedOn = false;
     setPushToTalk(true);
   }
 });
 
 window.addEventListener('keyup', (e) => {
   state.keys.delete(e.code);
-  if (e.code === 'KeyV') {
+  if (e.code === 'KeyV' && !state.voiceLockedOn) {
     setPushToTalk(false);
   }
 });
@@ -4640,7 +5148,7 @@ function updateLocalPlayer(dt) {
     }
   }
 
-  updateSpatialConcertAudio(self.currentPos);
+  updateSpatialConcertAudio(self.currentPos, dt);
   updateProximityVoiceVolumes();
 }
 
@@ -4695,7 +5203,7 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
   // Update floating krathongs on pond (X: 37.8..54.2, Z: -26.2..+2.2)
   for (const [, item] of state.krathongs) {
     const k = item.data;
-    const age = (Date.now() - k.createdAt) / 1000;
+    const age = Math.max(0, (Date.now() - k.createdAt) / 1000);
     const px = 38 + ((k.x - 38 + age * k.driftVx) % 15.5);
     const pz = -12 + Math.sin(age * 0.18 + k.z) * 11.5;
     const bob = Math.sin(elapsed * 2.1 + k.x) * 0.03;
@@ -4931,7 +5439,8 @@ async function bootstrap() {
   frontRoadState = buildFrontRoad(scene, state.lowGraphics);
   setupWorldCollisions();
 
-  // Start rendering loop right away
+  // Start rendering loop & pre-fetch music playlists before Lobby submit (for sync mobile audio unlock!)
+  preloadAudioTrackLists();
   animate();
 
   // Load all 7 GLB models with progress bar & wireframe fallback

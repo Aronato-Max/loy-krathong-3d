@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=11">
+  <link rel="stylesheet" href="/css/style.css?v=12">
   <script type="importmap">
     {
       "imports": {
@@ -168,7 +168,10 @@
       </div>
     </div>
 
-    <!-- Center Toast & Interaction Prompt -->
+    <!-- Center Toast, Audio Unlock Fallback & Interaction Prompt -->
+    <button type="button" id="btn-audio-unlock" class="audio-unlock-btn hidden" aria-label="แตะเพื่อเปิดเสียงเพลงและเสียงพูดคุย">
+      🔊 แตะเพื่อเปิดเสียงเพลงและเสียงเพื่อน
+    </button>
     <div id="toast-banner" class="toast-banner hidden" role="status" aria-live="polite"></div>
 
     <div id="interact-prompt-wrap" class="interact-wrap hidden">
@@ -210,9 +213,9 @@
           <span aria-hidden="true">👋</span>
           <span class="wave-text">โบกมือ (H)</span>
         </button>
-        <button type="button" id="btn-ptt" class="ptt-btn" aria-pressed="false" aria-label="กดค้างเพื่อพูดคุยด้วยเสียง" title="กดค้างหรือกด V เพื่อพูดคุยด้วยเสียงใกล้เคียง">
+        <button type="button" id="btn-ptt" class="ptt-btn" aria-pressed="false" aria-label="แตะเปิด/ปิดไมค์ หรือกดค้างเพื่อพูดคุยด้วยเสียง" title="แตะเพื่อเปิด/ปิดไมค์ หรือกดค้าง / กด V เพื่อพูดคุยด้วยเสียงใกล้เคียง">
           <span class="ptt-icon" aria-hidden="true">🎙️</span>
-          <span class="ptt-text">กดค้างพูด (V)</span>
+          <span class="ptt-text">แตะ/กดค้างพูด (V)</span>
         </button>
       </div>
 
@@ -355,8 +358,11 @@
     </div>
   </dialog>
 
-  <script src="/config.js?v=11"></script>
+  <!-- Hidden DOM container for mobile-safe HTMLAudioElement playback (music + WebRTC voice) -->
+  <div id="audio-elements-sink" class="sr-audio-sink" aria-hidden="true"></div>
+
+  <script src="/config.js?v=12"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=11"></script>
+  <script type="module" src="/js/app.js?v=12"></script>
 </body>
 </html>

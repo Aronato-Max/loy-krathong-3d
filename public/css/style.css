@@ -922,6 +922,38 @@ li {
 .dot-peer { background: #38bdf8; }
 .dot-pond { background: #0284c7; }
 
+/* Hidden DOM sink for mobile-safe HTMLAudioElement playback (never display:none) */
+.sr-audio-sink {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  top: -10px;
+  left: -10px;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Mobile Audio Unlock Pill (shown only if browser blocked autoplay) */
+.audio-unlock-btn {
+  position: fixed;
+  top: max(112px, calc(env(safe-area-inset-top, 10px) + 102px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 16;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 2px solid var(--gold);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.95), rgba(246, 196, 83, 0.95));
+  color: #0f172a;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 26px rgba(246, 196, 83, 0.5);
+  white-space: nowrap;
+  animation: floatPrompt 1.5s ease-in-out infinite;
+}
+
 /* Toast & Interact Prompt */
 .toast-banner {
   position: fixed;
@@ -1035,6 +1067,9 @@ li {
   width: 108px;
   height: 108px;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1076,6 +1111,9 @@ li {
   font-weight: 700;
   cursor: pointer;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.42);
   transition: background-color 140ms ease-out, scale 120ms ease-out, box-shadow 140ms ease-out;
 }
@@ -1119,6 +1157,9 @@ li {
   font-size: 0.84rem;
   cursor: pointer;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
@@ -1144,15 +1185,24 @@ li {
   font-size: 0.85rem;
   cursor: pointer;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   touch-action: none;
+  -webkit-tap-highlight-color: transparent;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 .ptt-btn.active {
   background: linear-gradient(135deg, #ef4444, #f97316);
   border-color: #fecaca;
-  transform: scale(1.05);
-  box-shadow: 0 0 22px rgba(239, 68, 68, 0.75);
+  transform: scale(1.06);
+  box-shadow: 0 0 22px rgba(239, 68, 68, 0.8);
+  animation: pttPulse 1.1s ease-in-out infinite;
+}
+
+@keyframes pttPulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(239, 68, 68, 0.75), 0 0 0 0 rgba(239, 68, 68, 0.55); }
+  50% { box-shadow: 0 0 26px rgba(239, 68, 68, 0.95), 0 0 0 10px rgba(239, 68, 68, 0); }
 }
 
 .ptt-icon {
@@ -1198,6 +1248,16 @@ li {
 }
 
 @media (max-width: 640px) {
+  .toast-banner {
+    top: max(92px, calc(env(safe-area-inset-top, 10px) + 84px));
+    font-size: 0.8rem;
+    padding: 7px 14px;
+  }
+  .audio-unlock-btn {
+    top: max(92px, calc(env(safe-area-inset-top, 10px) + 84px));
+    font-size: 0.8rem;
+    padding: 8px 14px;
+  }
   /* Ultra-slim Top-Left HUD on mobile so 3D view stays unobstructed */
   .hud-top-left {
     max-inline-size: calc(100dvw - 108px);

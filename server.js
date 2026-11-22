@@ -45,6 +45,20 @@ app.use(
     etag: true
   })
 );
+app.use(
+  '/audio',
+  express.static(path.join(__dirname, 'public', 'audio'), {
+    maxAge: '1d',
+    etag: true
+  })
+);
+app.use(
+  '/audio-festival',
+  express.static(path.join(__dirname, 'public', 'audio-festival'), {
+    maxAge: '1d',
+    etag: true
+  })
+);
 // Never cache index.html or config.js so mobile/PC browsers always load the latest version
 app.use((req, res, next) => {
   if (req.path === '/' || req.path.endsWith('.html') || req.path === '/config.js') {
