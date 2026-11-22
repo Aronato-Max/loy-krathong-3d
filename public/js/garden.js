@@ -59,7 +59,7 @@ export const GARDEN_LAYOUT = {
     { x: 27.5, z: -39.5, scale: 0.98, rotY: 4.2 },
     { x: 40.5, z: -41.0, scale: 1.04, rotY: 5.3 },
     { x: 53.0, z: -41.5, scale: 0.96, rotY: 1.2 },
-    { x: 28.0, z: -30.5, scale: 0.92, rotY: 2.5 },
+    { x: 27.2, z: -32.2, scale: 0.92, rotY: 2.5 },
     { x: 40.5, z: -31.0, scale: 0.94, rotY: 3.8 }
   ],
 
@@ -186,7 +186,7 @@ export const GARDEN_LAYOUT = {
     { x: 30.8, z: -55.4, scale: 1.05, flowers: true },
     { x: 26.2, z: -48.0, scale: 0.95, flowers: true },
     { x: 26.2, z: -35.5, scale: 0.95, flowers: false },
-    { x: 31.2, z: -30.2, scale: 0.9, flowers: true }
+    { x: 31.5, z: -31.8, scale: 0.9, flowers: true }
   ],
 
   // Curved stepping-stone garden walkways

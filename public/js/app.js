@@ -29,6 +29,10 @@ import {
   setPhotoBoothGraphicsMode,
   drawPhotoBoothMinimap
 } from './photo-booth.js';
+import {
+  buildConcertChairs,
+  drawConcertChairsMinimap
+} from './concert-chairs.js';
 
 // Backend API/Socket origin (empty = same origin; set via /config.js when hosting public/ on Cloudflare Pages)
 const SERVER_URL = (window.LOY_KRATHONG_CONFIG?.serverUrl || '').replace(/\/+$/, '');
@@ -4310,10 +4314,11 @@ function drawMinimap() {
   minimapCtx.fillStyle = '#f59e0b';
   minimapCtx.fillRect(mapX(-4.5), mapY(52.5), mapW(9), mapH(3));
 
-  // Temple fair gardens (SE, SW/Mid-West & NE trees), central lantern plaza & photo booth
+  // Temple fair gardens (SE, SW/Mid-West & NE trees), central lantern plaza, photo booth & concert seating
   drawGardenMinimap(minimapCtx, mapX, mapY);
   drawLanternPlazaMinimap(minimapCtx, mapX, mapY, mapW);
   drawPhotoBoothMinimap(minimapCtx, mapX, mapY, mapW, mapH);
+  drawConcertChairsMinimap(minimapCtx, mapX, mapY, mapW, mapH);
 
   // Remote online players (blue dots)
   for (const [id, p] of state.players) {
@@ -5707,6 +5712,7 @@ async function bootstrap() {
   frontRoadState = buildFrontRoad(scene, state.lowGraphics);
   photoBoothState = buildPhotoBooth(scene, addCollisionBox, state.lowGraphics);
   mergeStaticMeshesByMaterial(photoBoothState.root, [], false, [photoBoothState.photoLight]);
+  buildConcertChairs(scene, addCollisionBox);
   setupWorldCollisions();
 
   // Start rendering loop & pre-fetch music playlists before Lobby submit (for sync mobile audio unlock!)

@@ -6,12 +6,12 @@ import * as THREE from 'three';
 // ============================================================================
 
 export const PHOTO_BOOTH_CONFIG = {
-  x: 32.6,
+  x: 28.8,
   z: -27.2,
   rotY: 0,
   width: 7.4,
   depth: 1.2,
-  interactX: 32.6,
+  interactX: 28.8,
   interactZ: -25.1,
   interactRadius: 4.4
 };
