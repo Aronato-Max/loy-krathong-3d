@@ -62,8 +62,8 @@ const MODEL_SPECS = [
     key: 'krathongTables',
     url: `/models/krathong_tables.glb${MODEL_VER}`,
     label: 'โต๊ะบูชากระทง',
-    pos: [30.8, 0, -23.0],
-    rotY: 0,
+    pos: [31.8, 0, -20.4],
+    rotY: -0.68,
     animate: true,
     fallbackSize: [5, 2.2, 2]
   },
@@ -133,7 +133,7 @@ const INTERACT_ZONES = [
   {
     id: 'krathong-shop',
     x: 30.8,
-    z: -21.2,
+    z: -19.1,
     radius: 4.8,
     label: 'เลือกบูชากระทงฟรี (3 แบบ)',
     dialogId: 'dialog-krathong-shop'
@@ -145,14 +145,6 @@ const INTERACT_ZONES = [
     radius: 4.8,
     label: 'ลอยกระทงอธิษฐาน',
     dialogId: 'dialog-float-krathong'
-  },
-  {
-    id: 'concert-jukebox',
-    x: -21,
-    z: -45.5,
-    radius: 7.2,
-    label: 'เปิด/เลือกเพลงหน้าเวที 🎵',
-    dialogId: 'dialog-stage-music'
   },
   {
     id: 'lantern-plaza',
@@ -253,19 +245,7 @@ const dom = {
 
   dialogBuddha: document.getElementById('dialog-buddha'),
   buddhaBlessingText: document.getElementById('buddha-blessing-text'),
-  btnPrayAgain: document.getElementById('btn-pray-again'),
-
-  btnYtUnlock: document.getElementById('btn-yt-unlock'),
-  dialogStageMusic: document.getElementById('dialog-stage-music'),
-  stageNowPlayingTitle: document.getElementById('stage-now-playing-title'),
-  stageNowPlayingBy: document.getElementById('stage-now-playing-by'),
-  stageYoutubeForm: document.getElementById('stage-youtube-form'),
-  inputYtUrl: document.getElementById('input-yt-url'),
-  inputYtTitle: document.getElementById('input-yt-title'),
-  stageMp3List: document.getElementById('stage-mp3-list'),
-  stageMp3Empty: document.getElementById('stage-mp3-empty'),
-  btnStageSynth: document.getElementById('btn-stage-synth'),
-  ytStageHost: document.getElementById('yt-stage-host')
+  btnPrayAgain: document.getElementById('btn-pray-again')
 };
 
 const state = {
@@ -372,7 +352,7 @@ const perfLodRefs = {
   concertAnimNodes: [],
   concertPos: new THREE.Vector3(-21, 0, -52.5),
   krathongTablesRoot: null,
-  krathongPos: new THREE.Vector3(30.8, 0, -23.0),
+  krathongPos: new THREE.Vector3(31.8, 0, -20.4),
   cullableBuildings: [] // { root, pos, maxDist }
 };
 
@@ -615,8 +595,8 @@ function setupWorldCollisions() {
   addCollisionBox(-6.8, -4.5, 52.8, 55.5, 'gate-elephant-left');
   addCollisionBox(4.5, 6.8, 52.8, 55.5, 'gate-elephant-right');
 
-  // Krathong tables moved beside the pier walkway (30.8, -23.0)
-  addCollisionBox(28.2, 33.4, -24.1, -22.2, 'krathong-tables');
+  // Krathong tables aligned parallel to the diagonal pier walkway (31.8, -20.4, rotY=-0.68)
+  addRotatedCollisionBox(31.8, -20.4, 5.1, 1.85, -0.68, 'krathong-tables');
 
   // Concert stage moved to north-left (-21, -52.5), rotY = 0
   addCollisionBox(-32.2, -9.8, -56.3, -48.7, 'concert-stage');
@@ -884,18 +864,12 @@ function buildGroundAndRoads() {
   tunnelWalk2.position.set(16.15, 0.014, -20.6);
   scene.add(tunnelWalk2);
 
-  // Open diagonal walkway connecting trimmed end of tunnel_18m (25,-20.6) & krathong shop (30.8,-23.0) to pier (35.4,-12)
+  // Open diagonal walkway connecting trimmed end of tunnel_18m (25,-20.6) & krathong shop (31.8,-20.4) to pier (35.4,-12)
   const pierLink = new THREE.Mesh(new THREE.PlaneGeometry(13.5, 5.2), pathMat);
   pierLink.rotation.x = -Math.PI / 2;
   pierLink.rotation.z = -0.68;
   pierLink.position.set(30.5, 0.014, -16.8);
   scene.add(pierLink);
-
-  // Forecourt pad under relocated Krathong Shop beside the pond & pier
-  const krathongShopPad = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 5.2), pathMat);
-  krathongShopPad.rotation.x = -Math.PI / 2;
-  krathongShopPad.position.set(30.8, 0.013, -22.2);
-  scene.add(krathongShopPad);
 
   // Plaza around Krathong tables & Command tent
   const plazaTopRight = new THREE.Mesh(new THREE.PlaneGeometry(18, 9), pathMat);
@@ -997,6 +971,207 @@ function buildCornerArchAndStringLights() {
   bulbs.instanceMatrix.needsUpdate = true;
   if (bulbs.instanceColor) bulbs.instanceColor.needsUpdate = true;
   scene.add(bulbs);
+
+  buildTunnelNeonLights();
+}
+
+const TUNNEL_NEON_PALETTE = [
+  new THREE.Color(0xff2e93), // Hot Magenta Pink
+  new THREE.Color(0xffd60a), // Festival Gold
+  new THREE.Color(0x00f5ff), // Electric Cyan
+  new THREE.Color(0xc026d3), // Vivid Neon Violet
+  new THREE.Color(0x22ff88), // Emerald Neon
+  new THREE.Color(0xff6b1a)  // Fiery Coral Orange
+];
+
+const tunnelNeonRefs = {
+  bulbs: null,
+  halos: null,
+  bulbPhases: [],
+  haloPhases: [],
+  lastTickAt: 0,
+  tempColor: new THREE.Color()
+};
+
+function createTunnelGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+  g.addColorStop(0.35, 'rgba(255, 255, 255, 0.45)');
+  g.addColorStop(0.75, 'rgba(255, 255, 255, 0.12)');
+  g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function buildTunnelNeonLights() {
+  const bulbPts = [];
+  const haloPts = [];
+
+  // Helper: sample arch ribs & longitudinal runners along a tunnel segment
+  // Local tunnel profile: straight sides at ±1.60 (y: 0.75..1.98), semicircular arch r=1.60 centered at y=1.98 (peak 3.58)
+  const sampleArchProfile = [
+    [-1.6, 0.85], [-1.6, 1.42], [-1.6, 1.98],
+    [-1.47, 2.60], [-1.13, 3.11], [-0.61, 3.46],
+    [0.0, 3.58],
+    [0.61, 3.46], [1.13, 3.11], [1.47, 2.60],
+    [1.6, 1.98], [1.6, 1.42], [1.6, 0.85]
+  ];
+  const haloProfileIndices = [2, 4, 6, 8, 10]; // Eaves, upper curves, and crown peak
+
+  // 1) North-South Tunnel (tunnel_24m): X=8, Z=-19..+5 (24m)
+  for (let i = 0; i <= 16; i++) {
+    const z = -19 + i * 1.5;
+    const u = i * 0.45;
+    const isMajorRib = i % 2 === 0;
+    for (let k = 0; k < sampleArchProfile.length; k++) {
+      const [lx, ly] = sampleArchProfile[k];
+      if (!isMajorRib && k % 2 === 1) continue;
+      bulbPts.push({ x: 8 + lx, y: ly, z, phase: u + k * 0.18 });
+    }
+    if (isMajorRib) {
+      for (const idx of haloProfileIndices) {
+        const [lx, ly] = sampleArchProfile[idx];
+        haloPts.push({ x: 8 + lx, y: ly, z, ry: 0, phase: u + idx * 0.18 });
+      }
+    }
+  }
+  // Longitudinal LED strips along ridge & both eaves of tunnel_24m
+  for (let s = 0; s < 32; s++) {
+    const z = -18.6 + (s / 31) * 23.2;
+    const u = s * 0.24;
+    bulbPts.push({ x: 8, y: 3.60, z, phase: u });
+    bulbPts.push({ x: 6.38, y: 2.0, z, phase: u + 1.2 });
+    bulbPts.push({ x: 9.62, y: 2.0, z, phase: u + 2.4 });
+  }
+
+  // 2) West-East Trimmed Tunnel (tunnel_18m): X=10..25 (15m), Z=-20.6
+  for (let i = 0; i <= 10; i++) {
+    const x = 10 + i * 1.5;
+    const u = 7.5 + i * 0.45;
+    const isMajorRib = i % 2 === 0;
+    for (let k = 0; k < sampleArchProfile.length; k++) {
+      const [lz, ly] = sampleArchProfile[k];
+      if (!isMajorRib && k % 2 === 1) continue;
+      bulbPts.push({ x, y: ly, z: -20.6 + lz, phase: u + k * 0.18 });
+    }
+    if (isMajorRib) {
+      for (const idx of haloProfileIndices) {
+        const [lz, ly] = sampleArchProfile[idx];
+        haloPts.push({ x, y: ly, z: -20.6 + lz, ry: Math.PI / 2, phase: u + idx * 0.18 });
+      }
+    }
+  }
+  // Longitudinal LED strips along ridge & both eaves of tunnel_18m
+  for (let s = 0; s < 22; s++) {
+    const x = 10.3 + (s / 21) * 14.4;
+    const u = 7.5 + s * 0.26;
+    bulbPts.push({ x, y: 3.60, z: -20.6, phase: u });
+    bulbPts.push({ x, y: 2.0, z: -22.22, phase: u + 1.2 });
+    bulbPts.push({ x, y: 2.0, z: -18.98, phase: u + 2.4 });
+  }
+
+  const bulbGeo = new THREE.SphereGeometry(0.088, 6, 5);
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  const bulbs = new THREE.InstancedMesh(bulbGeo, bulbMat, bulbPts.length);
+
+  const glowTex = createTunnelGlowTexture();
+  const haloGeo = new THREE.PlaneGeometry(1.15, 1.15);
+  const haloMat = new THREE.MeshBasicMaterial({
+    map: glowTex,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.72,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false
+  });
+  const halos = new THREE.InstancedMesh(haloGeo, haloMat, haloPts.length);
+
+  const dummy = new THREE.Object3D();
+  const c = new THREE.Color();
+  const palLen = TUNNEL_NEON_PALETTE.length;
+
+  bulbPts.forEach((p, idx) => {
+    dummy.position.set(p.x, p.y, p.z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.setScalar(1);
+    dummy.updateMatrix();
+    bulbs.setMatrixAt(idx, dummy.matrix);
+    c.copy(TUNNEL_NEON_PALETTE[Math.floor(p.phase) % palLen]);
+    bulbs.setColorAt(idx, c);
+    tunnelNeonRefs.bulbPhases.push(p.phase);
+  });
+  bulbs.instanceMatrix.needsUpdate = true;
+  if (bulbs.instanceColor) bulbs.instanceColor.needsUpdate = true;
+
+  haloPts.forEach((p, idx) => {
+    dummy.position.set(p.x, p.y, p.z);
+    dummy.rotation.set(0, p.ry, 0);
+    dummy.scale.setScalar(1);
+    dummy.updateMatrix();
+    halos.setMatrixAt(idx, dummy.matrix);
+    c.copy(TUNNEL_NEON_PALETTE[Math.floor(p.phase) % palLen]);
+    halos.setColorAt(idx, c);
+    tunnelNeonRefs.haloPhases.push(p.phase);
+  });
+  halos.instanceMatrix.needsUpdate = true;
+  if (halos.instanceColor) halos.instanceColor.needsUpdate = true;
+
+  tunnelNeonRefs.bulbs = bulbs;
+  tunnelNeonRefs.halos = halos;
+  scene.add(bulbs, halos);
+}
+
+function updateTunnelNeonLights(elapsed) {
+  if (!tunnelNeonRefs.bulbs) return;
+  const now = performance.now();
+  const intervalMs = state.lowGraphics ? 140 : 75;
+  if (now - tunnelNeonRefs.lastTickAt < intervalMs) return;
+  tunnelNeonRefs.lastTickAt = now;
+
+  const pal = TUNNEL_NEON_PALETTE;
+  const palLen = pal.length;
+  const shift = elapsed * 1.45;
+  const c = tunnelNeonRefs.tempColor;
+
+  const bPhases = tunnelNeonRefs.bulbPhases;
+  for (let i = 0; i < bPhases.length; i++) {
+    const t = bPhases[i] + shift;
+    const i0 = ((Math.floor(t) % palLen) + palLen) % palLen;
+    const i1 = (i0 + 1) % palLen;
+    const frac = t - Math.floor(t);
+    c.copy(pal[i0]).lerp(pal[i1], frac);
+    // Gentle lively twinkle pulse
+    const twinkle = 0.84 + 0.28 * Math.sin(elapsed * 5.2 + bPhases[i] * 2.7);
+    c.multiplyScalar(twinkle);
+    tunnelNeonRefs.bulbs.setColorAt(i, c);
+  }
+  if (tunnelNeonRefs.bulbs.instanceColor) {
+    tunnelNeonRefs.bulbs.instanceColor.needsUpdate = true;
+  }
+
+  if (tunnelNeonRefs.halos) {
+    const hPhases = tunnelNeonRefs.haloPhases;
+    for (let i = 0; i < hPhases.length; i++) {
+      const t = hPhases[i] + shift;
+      const i0 = ((Math.floor(t) % palLen) + palLen) % palLen;
+      const i1 = (i0 + 1) % palLen;
+      const frac = t - Math.floor(t);
+      c.copy(pal[i0]).lerp(pal[i1], frac);
+      tunnelNeonRefs.halos.setColorAt(i, c);
+    }
+    if (tunnelNeonRefs.halos.instanceColor) {
+      tunnelNeonRefs.halos.instanceColor.needsUpdate = true;
+    }
+  }
 }
 
 function buildNorthTreePlaza() {
@@ -1555,19 +1730,6 @@ function buildSpecialZones() {
   pierGroup.add(pierSign);
 
   scene.add(pierGroup);
-
-  // 4) ป้ายตู้เพลงหน้าเวทีคอนเสิร์ต (DJ Jukebox Stand at (-13.5, 0, -47.2))
-  const djGroup = new THREE.Group();
-  djGroup.position.set(-13.5, 0, -47.2);
-  const djPost = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.07, 2.2, 8),
-    new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.7 })
-  );
-  djPost.position.y = 1.1;
-  const djSign = createSignBoard('🎵 ตู้เพลงหน้าเวที (กด E)', 3.6, 0.9, '#312e81', '#fde047');
-  djSign.position.y = 2.35;
-  djGroup.add(djPost, djSign);
-  scene.add(djGroup);
 }
 
 // ============================================================================
@@ -1957,6 +2119,26 @@ async function loadAllModels() {
             part.parent.remove(part);
           }
         }
+      }
+      // Boost emissive vibrancy of light-tunnel lanterns & fairy lights so they pop vividly
+      if (spec.key === 'tunnel24' || spec.key === 'tunnel18') {
+        let tintIdx = 0;
+        const vividColors = [0xff2e93, 0xffd60a, 0x00f5ff, 0xc026d3, 0x22ff88, 0xff6b1a];
+        modelRoot.traverse((obj) => {
+          if (!obj.isMesh || !obj.material || Array.isArray(obj.material)) return;
+          const m = obj.material;
+          if (m.emissive && (m.emissive.r + m.emissive.g + m.emissive.b) > 0.25) {
+            const isNeutral =
+              Math.max(m.emissive.r, m.emissive.g, m.emissive.b) -
+                Math.min(m.emissive.r, m.emissive.g, m.emissive.b) <
+              0.32;
+            if (isNeutral) {
+              const col = new THREE.Color(vividColors[tintIdx++ % vividColors.length]);
+              m.emissive.lerp(col, 0.55);
+            }
+            m.emissiveIntensity = Math.max(m.emissiveIntensity || 1, 1.85);
+          }
+        });
       }
       modelRoot.position.set(...spec.pos);
       modelRoot.rotation.y = spec.rotY;
@@ -2630,326 +2812,41 @@ function spawnReleasedLantern(lData) {
 }
 
 // ============================================================================
-// 9. SPATIAL CONCERT AUDIO (YOUTUBE SYNC + MP3 PLAYLIST + 120 BPM SYNTH)
+// 9. SPATIAL CONCERT AUDIO (AUTO-LOOP public/audio/ PLAYLIST OR 120 BPM SYNTH)
 // ============================================================================
 
 const audioEngine = {
   ctx: null,
   concertGain: null,
   concertPanner: null,
-  mode: 'synth', // 'synth' | 'mp3' | 'youtube'
-  stageMusic: {
-    mode: 'synth',
-    title: 'ดนตรีงานวัดอัตโนมัติ (120 BPM)',
-    url: null,
-    filename: null,
-    videoId: null,
-    requestedBy: 'ระบบงานวัด',
-    startedAt: Date.now()
-  },
-  stageTracks: [],
+  tracks: [],
+  trackIndex: 0,
+  usingPlaylist: false,
   mp3El: null,
-  mp3SourceNode: null,
   synthTimer: null,
   step: 0,
-  ytApiLoading: false,
-  ytApiReady: false,
-  ytPlayer: null,
-  ytReady: false,
-  pendingYt: null,
-  lastYtVol: -1,
   started: false
 };
 
-function parseYouTubeVideoId(raw) {
-  const str = String(raw || '').trim();
-  if (!str) return null;
-  if (/^[A-Za-z0-9_-]{11}$/.test(str)) return str;
-  try {
-    const u = new URL(str.startsWith('http') ? str : `https://${str}`);
-    const host = u.hostname.replace(/^www\./, '').toLowerCase();
-    if (host === 'youtu.be') {
-      const seg = u.pathname.split('/').filter(Boolean)[0];
-      return seg && /^[A-Za-z0-9_-]{11}$/.test(seg) ? seg : null;
-    }
-    if (host.endsWith('youtube.com') || host.endsWith('youtube-nocookie.com')) {
-      const v = u.searchParams.get('v');
-      if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
-      const parts = u.pathname.split('/').filter(Boolean);
-      const markerIdx = parts.findIndex((p) => p === 'shorts' || p === 'embed' || p === 'live' || p === 'v');
-      if (markerIdx >= 0 && parts[markerIdx + 1] && /^[A-Za-z0-9_-]{11}$/.test(parts[markerIdx + 1])) {
-        return parts[markerIdx + 1];
-      }
-    }
-  } catch {}
-  return null;
-}
-
-function stopSynth120BPM() {
-  if (audioEngine.synthTimer) {
-    clearInterval(audioEngine.synthTimer);
-    audioEngine.synthTimer = null;
-  }
-}
-
-function stopStageMp3() {
-  if (audioEngine.mp3El) {
-    try {
-      audioEngine.mp3El.pause();
-    } catch {}
-  }
-}
-
-function pauseStageYouTube() {
-  if (dom.btnYtUnlock) dom.btnYtUnlock.classList.add('hidden');
-  if (audioEngine.ytPlayer && audioEngine.ytReady) {
-    try {
-      audioEngine.ytPlayer.pauseVideo();
-    } catch {}
-  }
-}
-
-function loadYouTubeIframeAPI() {
-  if (window.YT && window.YT.Player) {
-    audioEngine.ytApiReady = true;
-    return Promise.resolve();
-  }
-  if (audioEngine.ytApiLoading) {
-    return new Promise((resolve) => {
-      const prev = window.__ytReadyResolvers || [];
-      prev.push(resolve);
-      window.__ytReadyResolvers = prev;
-    });
-  }
-  audioEngine.ytApiLoading = true;
-  return new Promise((resolve) => {
-    window.__ytReadyResolvers = [resolve];
-    const prevCallback = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      audioEngine.ytApiReady = true;
-      if (typeof prevCallback === 'function') prevCallback();
-      const resolvers = window.__ytReadyResolvers || [];
-      window.__ytReadyResolvers = [];
-      resolvers.forEach((fn) => fn());
-    };
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    tag.async = true;
-    document.head.appendChild(tag);
+function playStagePlaylistTrack(index) {
+  if (!audioEngine.mp3El || audioEngine.tracks.length === 0) return;
+  const total = audioEngine.tracks.length;
+  audioEngine.trackIndex = ((index % total) + total) % total;
+  const track = audioEngine.tracks[audioEngine.trackIndex];
+  audioEngine.mp3El.loop = total === 1;
+  audioEngine.mp3El.src = apiUrl(track.url);
+  audioEngine.mp3El.play().catch((err) => {
+    console.warn('Could not play stage playlist track:', track.filename, err);
   });
-}
-
-async function playStageYouTube(videoId, startedAt) {
-  const startSec = Math.max(0, Math.floor((Date.now() - (startedAt || Date.now())) / 1000));
-  audioEngine.pendingYt = { videoId, startSec };
-  await loadYouTubeIframeAPI();
-  if (audioEngine.mode !== 'youtube' || audioEngine.stageMusic?.videoId !== videoId) return;
-
-  if (audioEngine.ytPlayer && audioEngine.ytReady) {
-    try {
-      audioEngine.ytPlayer.loadVideoById({ videoId, startSeconds: startSec });
-      audioEngine.ytPlayer.unMute();
-      audioEngine.ytPlayer.playVideo();
-      setTimeout(() => {
-        if (audioEngine.mode !== 'youtube' || !audioEngine.ytPlayer) return;
-        try {
-          const st = audioEngine.ytPlayer.getPlayerState();
-          if (st !== window.YT.PlayerState.PLAYING && st !== window.YT.PlayerState.BUFFERING && dom.btnYtUnlock) {
-            dom.btnYtUnlock.classList.remove('hidden');
-          }
-        } catch {}
-      }, 1500);
-    } catch {}
-    return;
-  }
-
-  if (!dom.ytStageHost || audioEngine.ytPlayer) return;
-  const playerMount = document.createElement('div');
-  playerMount.id = 'yt-stage-player-el';
-  dom.ytStageHost.replaceChildren(playerMount);
-
-  audioEngine.ytPlayer = new window.YT.Player(playerMount, {
-    height: '120',
-    width: '120',
-    videoId,
-    playerVars: {
-      autoplay: 1,
-      controls: 0,
-      disablekb: 1,
-      fs: 0,
-      playsinline: 1,
-      rel: 0,
-      start: startSec,
-      origin: window.location.origin
-    },
-    events: {
-      onReady: (ev) => {
-        audioEngine.ytReady = true;
-        if (audioEngine.mode !== 'youtube') {
-          ev.target.pauseVideo();
-          return;
-        }
-        const pending = audioEngine.pendingYt;
-        try {
-          if (pending && pending.videoId !== videoId) {
-            ev.target.loadVideoById({ videoId: pending.videoId, startSeconds: pending.startSec });
-          }
-          ev.target.setVolume(state.musicEnabled ? 35 : 0);
-          ev.target.unMute();
-          ev.target.playVideo();
-        } catch {}
-        setTimeout(() => {
-          if (audioEngine.mode !== 'youtube') return;
-          try {
-            const st = ev.target.getPlayerState();
-            if (st !== window.YT.PlayerState.PLAYING && st !== window.YT.PlayerState.BUFFERING && dom.btnYtUnlock) {
-              dom.btnYtUnlock.classList.remove('hidden');
-            }
-          } catch {}
-        }, 1600);
-      },
-      onStateChange: (ev) => {
-        if (ev.data === window.YT.PlayerState.PLAYING && dom.btnYtUnlock) {
-          dom.btnYtUnlock.classList.add('hidden');
-        } else if (ev.data === window.YT.PlayerState.ENDED && audioEngine.mode === 'youtube') {
-          try {
-            ev.target.seekTo(0, true);
-            ev.target.playVideo();
-          } catch {}
-        }
-      },
-      onError: () => {
-        showToast('⚠️ คลิป YouTube นี้ไม่อนุญาตให้เล่นแบบฝัง (Embed) — ลองเลือกลิงก์อื่นหรือเพลง MP3 นะครับ');
-      }
-    }
-  });
-}
-
-async function playStageMp3(url, startedAt) {
-  if (!audioEngine.started) await initConcertAudio();
-  if (!audioEngine.ctx) return;
-
-  if (!audioEngine.mp3El) {
-    const el = new Audio();
-    el.loop = true;
-    el.crossOrigin = 'anonymous';
-    const src = audioEngine.ctx.createMediaElementSource(el);
-    src.connect(audioEngine.concertGain);
-    audioEngine.mp3El = el;
-    audioEngine.mp3SourceNode = src;
-  }
-
-  const fullUrl = apiUrl(url);
-  if (audioEngine.mp3El.src !== new URL(fullUrl, window.location.origin).href) {
-    audioEngine.mp3El.src = fullUrl;
-  }
-
-  const syncSeek = () => {
-    const dur = audioEngine.mp3El?.duration;
-    if (dur && Number.isFinite(dur) && dur > 1) {
-      const elapsedSec = Math.max(0, (Date.now() - (startedAt || Date.now())) / 1000);
-      audioEngine.mp3El.currentTime = elapsedSec % dur;
-    }
-  };
-  if (audioEngine.mp3El.readyState >= 1) {
-    syncSeek();
-  } else {
-    audioEngine.mp3El.addEventListener('loadedmetadata', syncSeek, { once: true });
-  }
-
-  try {
-    await audioEngine.mp3El.play();
-  } catch (err) {
-    console.warn('Could not play stage MP3:', err);
-  }
-}
-
-function updateStageMusicUI() {
-  const m = audioEngine.stageMusic;
-  if (dom.stageNowPlayingTitle) {
-    dom.stageNowPlayingTitle.textContent = m?.title || 'ดนตรีงานวัดอัตโนมัติ (120 BPM)';
-  }
-  if (dom.stageNowPlayingBy) {
-    const modeTag = m?.mode === 'youtube' ? 'YouTube' : m?.mode === 'mp3' ? 'MP3 3D' : 'Synth';
-    dom.stageNowPlayingBy.textContent = `โหมด ${modeTag} • เปิดโดย ${m?.requestedBy || 'ระบบงานวัด'}`;
-  }
-  if (dom.stageMp3List) {
-    for (const btn of dom.stageMp3List.querySelectorAll('.stage-track-btn')) {
-      const isActive = m?.mode === 'mp3' && btn.dataset.filename === m.filename;
-      btn.classList.toggle('is-playing', isActive);
-    }
-  }
-}
-
-async function applyStageMusic(music) {
-  if (!music || typeof music !== 'object') return;
-  audioEngine.stageMusic = music;
-  audioEngine.mode = music.mode || 'synth';
-  updateStageMusicUI();
-
-  if (!audioEngine.started) return;
-
-  if (audioEngine.mode === 'youtube' && music.videoId) {
-    stopSynth120BPM();
-    stopStageMp3();
-    await playStageYouTube(music.videoId, music.startedAt);
-  } else if (audioEngine.mode === 'mp3' && music.url) {
-    stopSynth120BPM();
-    pauseStageYouTube();
-    await playStageMp3(music.url, music.startedAt);
-  } else {
-    stopStageMp3();
-    pauseStageYouTube();
-    startSynth120BPM();
-  }
-}
-
-async function loadStageMp3Tracks() {
-  if (!dom.stageMp3List) return;
-  try {
-    const res = await fetch(apiUrl('/api/stage-tracks'));
-    if (!res.ok) return;
-    const data = await res.json();
-    const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
-    audioEngine.stageTracks = tracks;
-    dom.stageMp3List.replaceChildren();
-    if (tracks.length === 0) {
-      if (dom.stageMp3Empty) dom.stageMp3Empty.classList.remove('hidden');
-      return;
-    }
-    if (dom.stageMp3Empty) dom.stageMp3Empty.classList.add('hidden');
-    for (const t of tracks) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'stage-track-btn';
-      btn.dataset.filename = t.filename;
-      const isPlaying = audioEngine.stageMusic?.mode === 'mp3' && audioEngine.stageMusic.filename === t.filename;
-      if (isPlaying) btn.classList.add('is-playing');
-
-      const titleSpan = document.createElement('span');
-      titleSpan.textContent = `🎵 ${t.title}`;
-      const badge = document.createElement('small');
-      badge.textContent = isPlaying ? 'กำลังเล่น' : 'เปิดเพลง';
-      btn.append(titleSpan, badge);
-
-      btn.addEventListener('click', () => {
-        if (!socket) return;
-        socket.emit('stage:setMusic', { mode: 'mp3', filename: t.filename, url: t.url }, (ack) => {
-          if (ack?.ok) {
-            dom.dialogStageMusic.close();
-            showToast(`🎵 เปลี่ยนเพลงหน้าเวทีเป็น "${t.title}" แล้ว!`);
-          }
-        });
-      });
-      dom.stageMp3List.appendChild(btn);
-    }
-  } catch {}
 }
 
 async function initConcertAudio() {
   if (audioEngine.started) {
     if (audioEngine.ctx && audioEngine.ctx.state === 'suspended') {
       await audioEngine.ctx.resume();
+    }
+    if (audioEngine.usingPlaylist && audioEngine.mp3El && audioEngine.mp3El.paused) {
+      audioEngine.mp3El.play().catch(() => {});
     }
     return;
   }
@@ -2965,8 +2862,41 @@ async function initConcertAudio() {
   audioEngine.concertPanner.connect(audioEngine.ctx.destination);
   audioEngine.started = true;
 
-  // Apply whichever stage music is active (default synth or room-synced MP3/YouTube)
-  await applyStageMusic(audioEngine.stageMusic);
+  // Fetch all audio files placed in public/audio/ and auto-loop them continuously
+  let tracks = [];
+  try {
+    const res = await fetch(apiUrl('/api/stage-tracks'));
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.tracks)) tracks = data.tracks;
+    }
+  } catch {
+    tracks = [];
+  }
+
+  if (tracks.length > 0) {
+    try {
+      audioEngine.tracks = tracks;
+      const el = new Audio();
+      el.crossOrigin = 'anonymous';
+      el.addEventListener('ended', () => {
+        if (audioEngine.tracks.length > 1) {
+          playStagePlaylistTrack(audioEngine.trackIndex + 1);
+        }
+      });
+      const src = audioEngine.ctx.createMediaElementSource(el);
+      src.connect(audioEngine.concertGain);
+      audioEngine.mp3El = el;
+      audioEngine.usingPlaylist = true;
+      playStagePlaylistTrack(0);
+      return;
+    } catch (err) {
+      console.warn('Could not start stage MP3 playlist, falling back to 120 BPM synth:', err);
+    }
+  }
+
+  // Fallback until owner uploads .mp3 files into public/audio/: 120 BPM Thai pentatonic synth
+  startSynth120BPM();
 }
 
 function startSynth120BPM() {
@@ -3060,29 +2990,14 @@ function startSynth120BPM() {
 
 function updateSpatialConcertAudio(playerPos) {
   if (!audioEngine.concertGain || !audioEngine.ctx) return;
-  const dist = playerPos.distanceTo(CONCERT_POS);
-  // Loud within 10m, gentle rolloff up to 52m
-  const maxDist = 52;
-  const vol = state.musicEnabled ? Math.max(0, 1 - Math.max(0, dist - 8) / (maxDist - 8)) : 0;
-
-  if (audioEngine.mode === 'youtube') {
-    audioEngine.concertGain.gain.setTargetAtTime(0, audioEngine.ctx.currentTime, 0.06);
-    if (audioEngine.ytPlayer && audioEngine.ytReady) {
-      const ytVol = Math.round(vol * vol * 95);
-      if (Math.abs(ytVol - audioEngine.lastYtVol) >= 2 || (ytVol === 0 && audioEngine.lastYtVol !== 0)) {
-        audioEngine.lastYtVol = ytVol;
-        try {
-          audioEngine.ytPlayer.setVolume(ytVol);
-        } catch {}
-      }
-    }
-    return;
-  }
-
   if (!state.musicEnabled) {
     audioEngine.concertGain.gain.setTargetAtTime(0, audioEngine.ctx.currentTime, 0.06);
     return;
   }
+  const dist = playerPos.distanceTo(CONCERT_POS);
+  // Loud within 10m, gentle rolloff up to 52m
+  const maxDist = 52;
+  const vol = Math.max(0, 1 - Math.max(0, dist - 8) / (maxDist - 8));
   const curvedVol = vol * vol * 0.48;
   audioEngine.concertGain.gain.setTargetAtTime(curvedVol, audioEngine.ctx.currentTime, 0.08);
 
@@ -3428,9 +3343,6 @@ function connectSocketAndJoin() {
     (data.players || []).forEach((p) => spawnOrUpdatePlayer(p));
     (data.krathongs || []).forEach((k) => spawnFloatedKrathong(k));
     (data.lanterns || []).forEach((l) => spawnReleasedLantern(l));
-    if (data.stageMusic) {
-      applyStageMusic(data.stageMusic);
-    }
     updateOnlineCounter();
   });
 
@@ -3466,10 +3378,6 @@ function connectSocketAndJoin() {
 
   socket.on('lantern:released', (l) => {
     spawnReleasedLantern(l);
-  });
-
-  socket.on('stage:musicUpdated', (music) => {
-    applyStageMusic(music);
   });
 
   socket.on('chat:message', (msg) => {
@@ -3592,9 +3500,13 @@ function drawMinimap() {
   minimapCtx.fillRect(mapX(6.5), mapY(-19), mapW(3), mapH(24));
   minimapCtx.fillRect(mapX(8), mapY(-22.1), mapW(17), mapH(3));
 
-  // Krathong tables (30.8, -23.0) & Command (8.5, -26.2)
+  // Krathong tables aligned along pier walkway (31.8, -20.4, rotY=-0.68) & Command (8.5, -26.2)
+  minimapCtx.save();
+  minimapCtx.translate(mapX(31.8), mapY(-20.4));
+  minimapCtx.rotate(0.68);
   minimapCtx.fillStyle = '#fb923c';
-  minimapCtx.fillRect(mapX(28.3), mapY(-24.1), mapW(5), mapH(2.2));
+  minimapCtx.fillRect(-mapW(2.5), -mapH(1.0), mapW(5.0), mapH(2.0));
+  minimapCtx.restore();
   minimapCtx.fillStyle = '#a855f7';
   minimapCtx.fillRect(mapX(6.7), mapY(-28), mapW(3.6), mapH(3.6));
 
@@ -3726,10 +3638,6 @@ function openZoneDialog(zone) {
     const meta = KRATHONG_META[state.heldKrathong];
     dom.floatHeldInfo.textContent = `คุณกำลังถือ ${meta.emoji} ${meta.name} พร้อมปล่อยลงสระน้ำแล้ว`;
     dom.dialogFloatKrathong.showModal();
-  } else if (zone.id === 'concert-jukebox') {
-    updateStageMusicUI();
-    loadStageMp3Tracks();
-    dom.dialogStageMusic.showModal();
   } else if (zone.id === 'lantern-plaza') {
     dom.dialogReleaseLantern.showModal();
   } else if (zone.id === 'sala-buddha') {
@@ -3783,57 +3691,6 @@ dom.floatKrathongForm.addEventListener('submit', (e) => {
     });
   }
 });
-
-// Concert Stage Jukebox Controls (YouTube Link + Synth Reset + Mobile Unlock)
-if (dom.stageYoutubeForm) {
-  dom.stageYoutubeForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const rawUrl = dom.inputYtUrl.value.trim();
-    const videoId = parseYouTubeVideoId(rawUrl);
-    if (!videoId) {
-      showToast('⚠️ ลิงก์ YouTube ไม่ถูกต้อง กรุณาวางลิงก์เช่น https://youtu.be/... หรือ https://youtube.com/watch?v=...');
-      dom.inputYtUrl.focus();
-      return;
-    }
-    const title = dom.inputYtTitle.value.trim();
-    if (socket) {
-      socket.emit('stage:setMusic', { mode: 'youtube', videoId, title }, (ack) => {
-        if (ack?.ok) {
-          dom.inputYtUrl.value = '';
-          dom.inputYtTitle.value = '';
-          dom.dialogStageMusic.close();
-          showToast(`🎬 เปิดเพลง YouTube หน้าเวทีให้ทั้งห้องฟังแล้ว!`);
-        } else {
-          showToast('⚠️ ไม่สามารถเปลี่ยนเพลงหน้าเวทีได้ กรุณาลองใหม่');
-        }
-      });
-    }
-  });
-}
-
-if (dom.btnStageSynth) {
-  dom.btnStageSynth.addEventListener('click', () => {
-    if (!socket) return;
-    socket.emit('stage:setMusic', { mode: 'synth' }, (ack) => {
-      if (ack?.ok) {
-        dom.dialogStageMusic.close();
-        showToast('🎹 เปลี่ยนกลับเป็นดนตรีงานวัดอัตโนมัติ (120 BPM) แล้ว');
-      }
-    });
-  });
-}
-
-if (dom.btnYtUnlock) {
-  dom.btnYtUnlock.addEventListener('click', () => {
-    dom.btnYtUnlock.classList.add('hidden');
-    if (audioEngine.ytPlayer && audioEngine.ytReady) {
-      try {
-        audioEngine.ytPlayer.unMute();
-        audioEngine.ytPlayer.playVideo();
-      } catch {}
-    }
-  });
-}
 
 // Release Sky Lantern Submit
 dom.releaseLanternForm.addEventListener('submit', (e) => {
@@ -4562,7 +4419,8 @@ function updateAtmosphere(dt, elapsed) {
     skyRefs.pondWaterMat.emissiveIntensity = 0.4 + Math.sin(elapsed * 1.4) * 0.08;
   }
 
-  // Garden hanging lanterns & fireflies + central lantern plaza animations
+  // Garden hanging lanterns & fireflies + central lantern plaza + chasing multi-color tunnel lights
+  updateTunnelNeonLights(elapsed);
   if (gardenState && runHeavyAtmosphere) {
     updateTempleGardens(gardenState, effDt, elapsed);
   }

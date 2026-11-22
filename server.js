@@ -136,7 +136,6 @@ const VALID_KRATHONG_TYPES = new Set(['banana', 'lotus', 'bread']);
 const VALID_LANTERN_COLORS = new Set(['gold', 'pink', 'white']);
 const AUDIO_DIR = path.join(__dirname, 'public', 'audio');
 const AUDIO_EXT_RE = /\.(mp3|ogg|m4a|wav)$/i;
-const YT_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 function listStageAudioTracks() {
   try {
@@ -159,31 +158,6 @@ function listStageAudioTracks() {
   }
 }
 
-function createDefaultStageMusic() {
-  const tracks = listStageAudioTracks();
-  const preferred = tracks.find((t) => t.filename.toLowerCase() === 'concert.mp3') || tracks[0];
-  if (preferred) {
-    return {
-      mode: 'mp3',
-      title: preferred.title,
-      url: preferred.url,
-      filename: preferred.filename,
-      videoId: null,
-      requestedBy: 'เวทีคอนเสิร์ต',
-      startedAt: Date.now()
-    };
-  }
-  return {
-    mode: 'synth',
-    title: 'ดนตรีงานวัดอัตโนมัติ (120 BPM)',
-    url: null,
-    filename: null,
-    videoId: null,
-    requestedBy: 'ระบบงานวัด',
-    startedAt: Date.now()
-  };
-}
-
 const ROOM_DEFS = [
   { id: 'room-1', name: 'ลานงาน 1' },
   { id: 'room-2', name: 'ลานงาน 2' },
@@ -200,8 +174,7 @@ for (const def of ROOM_DEFS) {
     dirtyMoves: new Map(),
     floatedKrathongs: [],
     releasedLanterns: [],
-    recentChats: [],
-    stageMusic: createDefaultStageMusic()
+    recentChats: []
   });
 }
 
@@ -384,8 +357,7 @@ io.on('connection', (socket) => {
       players: Array.from(room.players.values()),
       krathongs: room.floatedKrathongs,
       lanterns: room.releasedLanterns,
-      recentChats: room.recentChats,
-      stageMusic: room.stageMusic
+      recentChats: room.recentChats
     });
 
     socket.to(room.id).emit('player:joined', playerState);
@@ -542,83 +514,6 @@ io.on('connection', (socket) => {
 
     if (typeof ack === 'function') {
       ack({ ok: true, lantern: lanternItem });
-    }
-  });
-
-  socket.on('stage:setMusic', (payload, ack) => {
-    const room = getRoomForSocket(socket);
-    const player = room?.players.get(socket.id);
-    if (!player || !payload || typeof payload !== 'object') {
-      if (typeof ack === 'function') ack({ ok: false, error: 'INVALID_PAYLOAD' });
-      return;
-    }
-
-    const mode = payload.mode;
-    let nextMusic = null;
-
-    if (mode === 'synth') {
-      nextMusic = {
-        mode: 'synth',
-        title: 'ดนตรีงานวัดอัตโนมัติ (120 BPM)',
-        url: null,
-        filename: null,
-        videoId: null,
-        requestedBy: player.nickname,
-        startedAt: Date.now()
-      };
-    } else if (mode === 'mp3') {
-      const tracks = listStageAudioTracks();
-      const found = tracks.find(
-        (t) => t.filename === payload.filename || t.url === payload.url
-      );
-      if (!found) {
-        if (typeof ack === 'function') ack({ ok: false, error: 'TRACK_NOT_FOUND' });
-        return;
-      }
-      nextMusic = {
-        mode: 'mp3',
-        title: found.title,
-        url: found.url,
-        filename: found.filename,
-        videoId: null,
-        requestedBy: player.nickname,
-        startedAt: Date.now()
-      };
-    } else if (mode === 'youtube') {
-      const videoId = sanitizeText(payload.videoId, 16);
-      if (!YT_ID_RE.test(videoId)) {
-        if (typeof ack === 'function') ack({ ok: false, error: 'INVALID_YOUTUBE_ID' });
-        return;
-      }
-      const customTitle = sanitizeText(payload.title, 70);
-      nextMusic = {
-        mode: 'youtube',
-        title: customTitle || `YouTube (${videoId})`,
-        url: null,
-        filename: null,
-        videoId,
-        requestedBy: player.nickname,
-        startedAt: Date.now()
-      };
-    } else {
-      if (typeof ack === 'function') ack({ ok: false, error: 'INVALID_MODE' });
-      return;
-    }
-
-    room.stageMusic = nextMusic;
-    io.to(room.id).emit('stage:musicUpdated', nextMusic);
-
-    pushChat(room, {
-      id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      senderId: 'system',
-      senderName: 'เวทีคอนเสิร์ต',
-      text: `${player.nickname} เปิดเพลงหน้าเวที: ${nextMusic.title} 🎵`,
-      type: 'system',
-      timestamp: Date.now()
-    });
-
-    if (typeof ack === 'function') {
-      ack({ ok: true, stageMusic: nextMusic });
     }
   });
 
