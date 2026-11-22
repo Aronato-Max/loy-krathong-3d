@@ -1,7 +1,9 @@
 // Configuration for Hybrid Split Deployment (Cloudflare Pages + Render Backend)
-// - Leave serverUrl as '' when running locally (http://localhost:3000) or single-server deploy.
-// - When hosting `public/` on Cloudflare Pages, set serverUrl to your Render backend URL,
-//   e.g.: 'https://loy-krathong-3d.onrender.com'
+// - On localhost, connects to the local server automatically.
+// - On Cloudflare Pages or Render, connects Socket.IO & API to the Render Singapore backend.
 window.LOY_KRATHONG_CONFIG = {
-  serverUrl: ''
+  serverUrl:
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? ''
+      : 'https://loy-krathong-3d-oz0w.onrender.com'
 };
