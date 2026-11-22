@@ -2148,6 +2148,145 @@ async function loadAllModels() {
           }
         }
       }
+function createStageFrontBannerTexture(flipY = false) {
+  const w = 2048;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  // 1) Rock concert obsidian-black + crimson stage-light gradient background
+  const bg = ctx.createLinearGradient(0, 0, w, 0);
+  bg.addColorStop(0, '#07070c');
+  bg.addColorStop(0.22, '#16050a');
+  bg.addColorStop(0.5, '#24070e');
+  bg.addColorStop(0.78, '#16050a');
+  bg.addColorStop(1, '#07070c');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle diagonal stage spotlight streaks
+  ctx.save();
+  ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
+  for (let i = 0; i < 6; i++) {
+    const sx = 180 + i * 330;
+    ctx.beginPath();
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx + 110, 0);
+    ctx.lineTo(sx - 40, h);
+    ctx.lineTo(sx - 150, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Warm crimson-gold radial glow behind center title
+  const glow = ctx.createRadialGradient(w / 2, h * 0.48, 40, w / 2, h * 0.48, w * 0.36);
+  glow.addColorStop(0, 'rgba(220, 38, 38, 0.36)');
+  glow.addColorStop(0.55, 'rgba(185, 28, 28, 0.14)');
+  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  // 2) Neon red outer frame + gold inner concert pinstripe
+  ctx.save();
+  ctx.strokeStyle = '#ff2a4b';
+  ctx.lineWidth = 8;
+  ctx.shadowColor = '#ff1e42';
+  ctx.shadowBlur = 18;
+  ctx.strokeRect(14, 12, w - 28, h - 24);
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.72)';
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(26, 22, w - 52, h - 44);
+  ctx.restore();
+
+  // Subtle rock-festival corner accents
+  ctx.save();
+  ctx.font = '700 24px "Noto Sans Thai", sans-serif';
+  ctx.fillStyle = '#fca5a5';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.fillText('★ ดนตรีสดเต็มวง', 48, 32);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#fde68a';
+  ctx.fillText('ชมฟรีตลอดงาน ★', w - 48, 32);
+  ctx.restore();
+
+  // 3) Huge bold concert-rock main title: "งานลอยกระทงวัดทุ่งท่าช้าง"
+  const title = 'งานลอยกระทงวัดทุ่งท่าช้าง';
+  ctx.save();
+  ctx.font = '700 106px "Noto Sans Thai", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+
+  // Outer red neon glow stroke
+  ctx.shadowColor = '#ef4444';
+  ctx.shadowBlur = 24;
+  ctx.strokeStyle = '#b91c1c';
+  ctx.lineWidth = 18;
+  ctx.strokeText(title, w / 2, h * 0.44);
+
+  // Inner metallic gold trim stroke
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#facc15';
+  ctx.lineWidth = 6;
+  ctx.strokeText(title, w / 2, h * 0.44);
+
+  // Crisp white-to-warm-ivory gradient fill
+  const textGrad = ctx.createLinearGradient(0, h * 0.16, 0, h * 0.72);
+  textGrad.addColorStop(0, '#ffffff');
+  textGrad.addColorStop(0.68, '#ffffff');
+  textGrad.addColorStop(1, '#fef08a');
+  ctx.fillStyle = textGrad;
+  ctx.fillText(title, w / 2, h * 0.44);
+  ctx.restore();
+
+  // 4) Date subtitle: "23–24 พฤศจิกายน 2569"
+  ctx.save();
+  ctx.font = '700 34px "Noto Sans Thai", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = '#fde047';
+  ctx.fillText('✦  23–24 พฤศจิกายน 2569  ✦', w / 2, h * 0.81);
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = flipY;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+      // Replace FrontVinylBanner on concert_stage with rock-concert "งานลอยกระทงวัดทุ่งท่าช้าง" banner
+      if (spec.key === 'concertStage') {
+        if (document.fonts && document.fonts.ready) {
+          await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 700))]);
+        }
+        const bannerObj = modelRoot.getObjectByName('FrontVinylBanner');
+        if (bannerObj) {
+          bannerObj.traverse((child) => {
+            if (!child.isMesh || !child.material) return;
+            const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+            if (!mat) return;
+            const bannerTex = createStageFrontBannerTexture(true);
+            if (mat.map) mat.map.dispose();
+            if (mat.emissiveMap && mat.emissiveMap !== mat.map) mat.emissiveMap.dispose();
+            mat.map = bannerTex;
+            mat.emissiveMap = bannerTex;
+            if (mat.emissive) mat.emissive.setHex(0xffffff);
+            mat.emissiveIntensity = 0.65;
+            mat.needsUpdate = true;
+          });
+        }
+      }
+
       // Boost emissive vibrancy of light-tunnel lanterns & fairy lights so they pop vividly
       if (spec.key === 'tunnel24' || spec.key === 'tunnel18') {
         let tintIdx = 0;
