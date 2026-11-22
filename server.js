@@ -147,6 +147,7 @@ const MAX_RELEASED_LANTERNS = 40;
 const LANTERN_LIFETIME_MS = 90000;
 const MAX_RECENT_CHATS = 30;
 const VALID_KRATHONG_TYPES = new Set(['banana', 'lotus', 'bread']);
+const VALID_PROP_TYPES = new Set(['meatball', 'cotton_candy', 'drink', 'glowstick', 'balloon']);
 const VALID_LANTERN_COLORS = new Set(['gold', 'pink', 'white']);
 const AUDIO_DIR = path.join(__dirname, 'public', 'audio');
 const FESTIVAL_AUDIO_DIR = path.join(__dirname, 'public', 'audio-festival');
@@ -373,6 +374,7 @@ io.on('connection', (socket) => {
       isMoving: false,
       isRunning: false,
       heldKrathong: null,
+      heldProp: null,
       isSpeaking: false
     };
 
@@ -457,6 +459,20 @@ io.on('connection', (socket) => {
     io.to(room.id).emit('player:krathongUpdated', {
       id: socket.id,
       heldKrathong: nextType
+    });
+  });
+
+  socket.on('player:prop', (payload) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+
+    const nextProp = VALID_PROP_TYPES.has(payload?.type) ? payload.type : null;
+    player.heldProp = nextProp;
+
+    io.to(room.id).emit('player:propUpdated', {
+      id: socket.id,
+      heldProp: nextProp
     });
   });
 

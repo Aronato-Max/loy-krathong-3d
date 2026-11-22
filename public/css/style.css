@@ -1997,3 +1997,16 @@ body.low-gfx .chat-panel {
     font-size: 1.4rem;
   }
 }
+
+/* Friendly Floating Vendor Callout Bubble (1 reused DOM element above nearest shopkeeper) */
+.vendor-callout-bubble {
+  padding: 5px 11px;
+  border-radius: 14px;
+  background: rgba(254, 243, 199, 0.94);
+  border: 1.5px solid #f59e0b;
+  color: #451a03;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}

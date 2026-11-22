@@ -33,6 +33,13 @@ import {
   buildConcertChairs,
   drawConcertChairsMinimap
 } from './concert-chairs.js';
+import {
+  VENDOR_PROP_META,
+  buildVendorMarket,
+  createHandheldPropMesh,
+  findNearestVendorStall,
+  updateVendorMarket
+} from './vendor-market.js';
 
 // Backend API/Socket origin (empty = same origin; set via /config.js when hosting public/ on Cloudflare Pages)
 const SERVER_URL = (window.LOY_KRATHONG_CONFIG?.serverUrl || '').replace(/\/+$/, '');
@@ -311,6 +318,7 @@ const state = {
     avatarId: 'Avatar_BoyCargo'
   },
   heldKrathong: null,
+  heldProp: null,
   activeZone: null,
   isSpeaking: false,
   voiceLockedOn: false,
@@ -362,6 +370,7 @@ let gardenState = null;
 let lanternPlazaState = null;
 let frontRoadState = null;
 let photoBoothState = null;
+let vendorMarketState = null;
 const lambertMatCache = new WeakMap();
 
 function toFastLambertMaterial(stdMat) {
@@ -2557,10 +2566,13 @@ function buildFallbackAvatarMesh() {
   head.position.y = 1.25;
   const handSocket = new THREE.Group();
   handSocket.position.set(0.28, 0.65, 0.25);
-  root.add(body, head, handSocket);
+  const leftHandSocket = new THREE.Group();
+  leftHandSocket.position.set(-0.28, 0.65, 0.25);
+  root.add(body, head, handSocket, leftHandSocket);
   return {
     root,
     handSocket,
+    leftHandSocket,
     headY: 1.5,
     triggerWave() {},
     update() {}
@@ -2597,10 +2609,12 @@ function buildAvatar(rawConfig = {}) {
   }
   const headY = Number.isFinite(box.max.y) ? Math.max(0.85, box.max.y - (box.min.y || 0)) : 1.35;
 
-  // Attach right-hand socket for holding Krathong & grab bones for clean raised-arm waving
+  // Attach right-hand & left-hand sockets for Krathong / Vendor Props + grab bones for waving
   const handSocket = new THREE.Group();
+  const leftHandSocket = new THREE.Group();
   const armR = model.getObjectByName(`${spec.suffix}_ArmR`);
   const forearmR = model.getObjectByName(`${spec.suffix}_ForearmR`);
+  const forearmL = model.getObjectByName(`${spec.suffix}_ForearmL`);
   const headBone = model.getObjectByName(`${spec.suffix}_Head`);
   if (forearmR) {
     handSocket.position.set(0, -0.2, 0.16);
@@ -2608,6 +2622,13 @@ function buildAvatar(rawConfig = {}) {
   } else {
     handSocket.position.set(-0.24, headY * 0.5, 0.25);
     root.add(handSocket);
+  }
+  if (forearmL) {
+    leftHandSocket.position.set(0, -0.2, 0.16);
+    forearmL.add(leftHandSocket);
+  } else {
+    leftHandSocket.position.set(0.24, headY * 0.5, 0.25);
+    root.add(leftHandSocket);
   }
 
   // Bind Idle & Walk AnimationClips (right-arm wave is layered cleanly on top so Idle/Walk never drag the arm down)
@@ -2699,6 +2720,7 @@ function buildAvatar(rawConfig = {}) {
   return {
     root,
     handSocket,
+    leftHandSocket,
     headY,
     triggerWave,
     update
@@ -2861,6 +2883,28 @@ dom.previewCanvas.addEventListener('pointercancel', () => { previewDragging = fa
 // 8. MULTIPLAYER PLAYER MANAGEMENT & 3D LABELS
 // ============================================================================
 
+function updatePlayerHeldProp(playerObj, propType) {
+  if (playerObj.heldPropMesh) {
+    if (playerObj.heldPropMesh.parent) {
+      playerObj.heldPropMesh.parent.remove(playerObj.heldPropMesh);
+    }
+    playerObj.heldPropMesh = null;
+  }
+  playerObj.heldProp = propType || null;
+  if (propType && VENDOR_PROP_META[propType]) {
+    const mesh = createHandheldPropMesh(propType);
+    // Hold in right hand (waves high during H!) unless right hand is busy holding a krathong -> left hand!
+    const targetSocket = playerObj.heldKrathong
+      ? playerObj.leftHandSocket || playerObj.handSocket
+      : playerObj.handSocket;
+    targetSocket.add(mesh);
+    playerObj.heldPropMesh = mesh;
+  }
+  if (playerObj.id === state.selfId) {
+    state.heldProp = playerObj.heldProp;
+  }
+}
+
 function updatePlayerHeldKrathong(playerObj, krathongType) {
   if (playerObj.heldMesh) {
     playerObj.handSocket.remove(playerObj.heldMesh);
@@ -2871,6 +2915,10 @@ function updatePlayerHeldKrathong(playerObj, krathongType) {
     const mesh = createKrathongMesh(krathongType, 0.56);
     playerObj.handSocket.add(mesh);
     playerObj.heldMesh = mesh;
+  }
+  // If player is also holding a vendor snack/prop, seamlessly shift it between right & left hand
+  if (playerObj.heldProp) {
+    updatePlayerHeldProp(playerObj, playerObj.heldProp);
   }
   if (playerObj.id === state.selfId) {
     state.heldKrathong = playerObj.heldKrathong;
@@ -2920,6 +2968,7 @@ function spawnOrUpdatePlayer(data) {
     avatar: data.avatar,
     group: built.root,
     handSocket: built.handSocket,
+    leftHandSocket: built.leftHandSocket || built.handSocket,
     headY: built.headY,
     triggerWave: built.triggerWave,
     updateAnim: built.update,
@@ -2931,6 +2980,8 @@ function spawnOrUpdatePlayer(data) {
     isRunning: Boolean(data.isRunning),
     heldKrathong: null,
     heldMesh: null,
+    heldProp: null,
+    heldPropMesh: null,
     isSpeaking: Boolean(data.isSpeaking),
     labelEls,
     chatExpireAt: 0
@@ -2938,6 +2989,9 @@ function spawnOrUpdatePlayer(data) {
 
   if (data.heldKrathong) {
     updatePlayerHeldKrathong(pObj, data.heldKrathong);
+  }
+  if (data.heldProp) {
+    updatePlayerHeldProp(pObj, data.heldProp);
   }
   if (pObj.isSpeaking) {
     pObj.labelEls.speaking.classList.remove('hidden');
@@ -4134,6 +4188,11 @@ function connectSocketAndJoin() {
     if (p) updatePlayerHeldKrathong(p, d.heldKrathong);
   });
 
+  socket.on('player:propUpdated', (d) => {
+    const p = state.players.get(d.id);
+    if (p) updatePlayerHeldProp(p, d.heldProp);
+  });
+
   socket.on('krathong:floated', (k) => {
     spawnFloatedKrathong(k);
   });
@@ -4430,6 +4489,18 @@ function openZoneDialog(zone) {
     dom.dialogStagePlaylist.showModal();
   } else if (zone.id === 'photo-booth') {
     enterPhotoMode();
+  } else if (zone.id === 'vendor-stall' && zone.vendor) {
+    const propType = zone.vendor.tpl.prop;
+    const meta = VENDOR_PROP_META[propType];
+    const self = state.players.get(state.selfId);
+    const nextProp = state.heldProp === propType ? null : propType;
+    if (self) updatePlayerHeldProp(self, nextProp);
+    if (socket) socket.emit('player:prop', { type: nextProp });
+    if (nextProp && meta) {
+      showToast(`${meta.emoji} รับ${meta.name}จากร้าน "${zone.vendor.tpl.signTitle}" แล้ว! กด H โบกโชว์ได้เลย`);
+    } else if (meta) {
+      showToast(`วาง${meta.name}เรียบร้อยแล้ว`);
+    }
   } else if (zone.id === 'lantern-plaza') {
     dom.dialogReleaseLantern.showModal();
   } else if (zone.id === 'sala-buddha') {
@@ -5367,7 +5438,7 @@ function updateLocalPlayer(dt) {
     camera.lookAt(camTargetVec);
   }
 
-  // Check nearby interactive zones
+  // Check nearby interactive zones (landmarks first, then any of the 77 vendor stalls!)
   let foundZone = null;
   let bestDist = Infinity;
   for (const z of INTERACT_ZONES) {
@@ -5375,6 +5446,20 @@ function updateLocalPlayer(dt) {
     if (d <= z.radius && d < bestDist) {
       bestDist = d;
       foundZone = z;
+    }
+  }
+  if (!foundZone && vendorMarketState) {
+    const nearVendor = findNearestVendorStall(vendorMarketState, self.currentPos, 2.75);
+    if (nearVendor) {
+      const propMeta = VENDOR_PROP_META[nearVendor.tpl.prop];
+      const alreadyHolding = state.heldProp === nearVendor.tpl.prop;
+      foundZone = {
+        id: 'vendor-stall',
+        vendor: nearVendor,
+        label: alreadyHolding
+          ? `วาง ${propMeta.emoji} ${propMeta.name}`
+          : `รับ ${propMeta.emoji} ${propMeta.name} (${nearVendor.tpl.signTitle})`
+      };
     }
   }
   state.activeZone = foundZone;
@@ -5608,6 +5693,10 @@ function updateAtmosphere(dt, elapsed) {
   if (frontRoadState && frontRoadState.root.visible) {
     updateFrontRoad(frontRoadState, dt);
   }
+  if (vendorMarketState && runHeavyAtmosphere) {
+    const selfP = state.players.get(state.selfId);
+    updateVendorMarket(vendorMarketState, selfP?.currentPos, camera, elapsed, !state.joined || state.photoMode);
+  }
   updateMobileZoneCulling();
 }
 
@@ -5695,7 +5784,7 @@ async function bootstrap() {
   buildGroundAndRoads();
   buildCornerArchAndStringLights();
   buildMotorcycleParking();
-  buildVendorStalls();
+  vendorMarketState = buildVendorMarket(scene, addCollisionBox, dom.labelsLayer);
   buildSpecialZones();
   gardenState = buildTempleGardens(scene, addCollisionBox, state.lowGraphics);
   lanternPlazaState = buildLanternPlaza(scene, addCollisionBox, state.lowGraphics);
