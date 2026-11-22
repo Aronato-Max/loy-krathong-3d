@@ -794,8 +794,8 @@ export function setFrontRoadGraphicsMode(roadState, lowGraphics) {
   if (!roadState) return;
   const low = Boolean(lowGraphics);
   for (const v of roadState.vehicles) {
-    // In low-graphics mode keep half the traffic (2 vehicles per lane = 8 active)
-    v.mesh.visible = !low || v.index % 2 === 0;
+    // In low-graphics mobile mode keep 1 vehicle per lane (4 active total) for max FPS
+    v.mesh.visible = !low || v.index % 4 === 0;
   }
 }
 

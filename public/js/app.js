@@ -32,10 +32,11 @@ const apiUrl = (path) => `${SERVER_URL}${path}`;
 // 1. CONSTANTS, ZONES & CONFIGURATION
 // ============================================================================
 
+const MODEL_VER = '?v=3';
 const MODEL_SPECS = [
   {
     key: 'gate',
-    url: '/models/gate.glb',
+    url: `/models/gate.glb${MODEL_VER}`,
     label: 'ซุ้มประตูปรางค์ 3 ยอด',
     pos: [0, 0, 54],
     rotY: 0,
@@ -43,7 +44,7 @@ const MODEL_SPECS = [
   },
   {
     key: 'tunnel24',
-    url: '/models/tunnel_24m.glb',
+    url: `/models/tunnel_24m.glb${MODEL_VER}`,
     label: 'อุโมงค์ไฟ 24 เมตร',
     pos: [8, 0, -7],
     rotY: 0,
@@ -51,7 +52,7 @@ const MODEL_SPECS = [
   },
   {
     key: 'tunnel18',
-    url: '/models/tunnel_18m.glb',
+    url: `/models/tunnel_18m.glb${MODEL_VER}`,
     label: 'อุโมงค์ไฟ 18 เมตร',
     pos: [19, 0, -20.6],
     rotY: Math.PI / 2,
@@ -59,7 +60,7 @@ const MODEL_SPECS = [
   },
   {
     key: 'krathongTables',
-    url: '/models/krathong_tables.glb',
+    url: `/models/krathong_tables.glb${MODEL_VER}`,
     label: 'โต๊ะบูชากระทง',
     pos: [20, 0, -25.8],
     rotY: 0,
@@ -68,7 +69,7 @@ const MODEL_SPECS = [
   },
   {
     key: 'concertStage',
-    url: '/models/concert_stage.glb',
+    url: `/models/concert_stage.glb${MODEL_VER}`,
     label: 'เวทีคอนเสิร์ตกลางแจ้ง',
     pos: [-21, 0, -52.5],
     rotY: 0,
@@ -77,7 +78,7 @@ const MODEL_SPECS = [
   },
   {
     key: 'ubosot',
-    url: '/models/ubosot.glb',
+    url: `/models/ubosot.glb${MODEL_VER}`,
     label: 'อุโบสถ',
     pos: [15, 0, -43.5],
     rotY: 0,
@@ -85,7 +86,7 @@ const MODEL_SPECS = [
   },
   {
     key: 'salaBuddha',
-    url: '/models/sala_buddha.glb',
+    url: `/models/sala_buddha.glb${MODEL_VER}`,
     label: 'ศาลาพระพุทธรูป',
     pos: [31, 0, 13],
     rotY: -Math.PI / 2,
@@ -295,6 +296,43 @@ camera.position.set(0, 5, 67);
 let gardenState = null;
 let lanternPlazaState = null;
 let frontRoadState = null;
+const lambertMatCache = new WeakMap();
+
+function toFastLambertMaterial(stdMat) {
+  if (!stdMat || !stdMat.isMeshStandardMaterial) return stdMat;
+  if (lambertMatCache.has(stdMat)) return lambertMatCache.get(stdMat);
+
+  const lambert = new THREE.MeshLambertMaterial({
+    color: stdMat.color ? stdMat.color.clone() : 0xffffff,
+    map: stdMat.map || null,
+    emissive: stdMat.emissive ? stdMat.emissive.clone() : 0x000000,
+    emissiveMap: stdMat.emissiveMap || null,
+    emissiveIntensity: stdMat.emissiveIntensity ?? 1,
+    transparent: stdMat.transparent,
+    opacity: stdMat.opacity,
+    alphaTest: stdMat.alphaTest,
+    side: stdMat.side,
+    vertexColors: stdMat.vertexColors
+  });
+  lambertMatCache.set(stdMat, lambert);
+  return lambert;
+}
+
+function applyMobileMaterialMode(rootObj, useFastLambert) {
+  if (!rootObj) return;
+  rootObj.traverse((obj) => {
+    if (!obj.isMesh || !obj.material || Array.isArray(obj.material)) return;
+    if (useFastLambert) {
+      if (obj.material.isMeshStandardMaterial) {
+        if (!obj.userData._stdMat) obj.userData._stdMat = obj.material;
+        obj.material = toFastLambertMaterial(obj.userData._stdMat);
+      }
+    } else if (obj.userData._stdMat) {
+      obj.material = obj.userData._stdMat;
+    }
+  });
+}
+
 const perfLodRefs = {
   detailedWalls: null,
   liteWalls: null,
@@ -303,7 +341,8 @@ const perfLodRefs = {
   concertAnimNodes: [],
   concertPos: new THREE.Vector3(-21, 0, -52.5),
   krathongTablesRoot: null,
-  krathongPos: new THREE.Vector3(20, 0, -25.8)
+  krathongPos: new THREE.Vector3(20, 0, -25.8),
+  cullableBuildings: [] // { root, pos, maxDist }
 };
 
 function applyPerfLodMode(low) {
@@ -314,15 +353,25 @@ function applyPerfLodMode(low) {
     perfLodRefs.liteWalls.visible = Boolean(low);
   }
   for (const item of perfLodRefs.parkedMotoInsts) {
-    item.mesh.count = low ? Math.max(1, Math.ceil(item.fullCount * 0.5)) : item.fullCount;
+    // In mobile lowGraphics mode show only first 2 motorcycle models (~60% fewer draw calls & tris)
+    if (low) {
+      item.mesh.visible = item.modelIdx < 2;
+      item.mesh.count = Math.max(1, Math.ceil(item.fullCount * 0.5));
+    } else {
+      item.mesh.visible = true;
+      item.mesh.count = item.fullCount;
+    }
     item.mesh.instanceMatrix.needsUpdate = true;
   }
+  applyMobileMaterialMode(scene, Boolean(low));
+
   // Restore full visibility immediately when leaving lowGraphics mode
   if (!low) {
     for (const n of perfLodRefs.concertAnimNodes) n.visible = true;
     if (perfLodRefs.krathongTablesRoot) perfLodRefs.krathongTablesRoot.visible = true;
     if (perfLodRefs.parkedMotoGroup) perfLodRefs.parkedMotoGroup.visible = true;
     if (frontRoadState) frontRoadState.root.visible = true;
+    for (const b of perfLodRefs.cullableBuildings) b.root.visible = true;
   }
 }
 
@@ -330,21 +379,25 @@ function updateMobileZoneCulling() {
   if (!state.lowGraphics) return;
   const camZ = camera.position.z;
 
-  // Hide 530-draw-call concert dancers when >52m away (stage & screen remain visible!)
-  const showDancers = camera.position.distanceTo(perfLodRefs.concertPos) <= 52;
+  // Hide 530-draw-call concert dancers when >46m away (stage & screen remain visible!)
+  const showDancers = camera.position.distanceTo(perfLodRefs.concertPos) <= 46;
   for (let i = 0; i < perfLodRefs.concertAnimNodes.length; i++) {
     perfLodRefs.concertAnimNodes[i].visible = showDancers;
   }
 
   if (perfLodRefs.krathongTablesRoot) {
     perfLodRefs.krathongTablesRoot.visible =
-      camera.position.distanceTo(perfLodRefs.krathongPos) <= 52;
+      camera.position.distanceTo(perfLodRefs.krathongPos) <= 48;
   }
   if (perfLodRefs.parkedMotoGroup) {
-    perfLodRefs.parkedMotoGroup.visible = camZ > 12;
+    perfLodRefs.parkedMotoGroup.visible = camZ > 15;
   }
   if (frontRoadState) {
-    frontRoadState.root.visible = camZ > 18;
+    frontRoadState.root.visible = camZ > 20;
+  }
+  for (let i = 0; i < perfLodRefs.cullableBuildings.length; i++) {
+    const b = perfLodRefs.cullableBuildings[i];
+    b.root.visible = camera.position.distanceTo(b.pos) <= b.maxDist;
   }
 }
 
@@ -390,20 +443,21 @@ function applyGraphicsMode(low) {
   state.lowGraphics = Boolean(low);
   document.body.classList.toggle('low-gfx', state.lowGraphics);
 
-  // Mobile turbo mode: lower fill-rate + shorter far frustum + fewer dynamic lights + no blur passes
+  // Mobile turbo mode: lower fill-rate + NoToneMapping + shorter far frustum + fast Lambert shaders + no blur passes
   renderer.setPixelRatio(
-    state.lowGraphics ? 0.9 : Math.min(window.devicePixelRatio || 1, 1.5)
+    state.lowGraphics ? 0.72 : Math.min(window.devicePixelRatio || 1, 1.5)
   );
+  renderer.toneMapping = state.lowGraphics ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = !state.lowGraphics;
   if (!state.lowGraphics) {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.shadowMap.needsUpdate = true;
   }
 
-  camera.far = state.lowGraphics ? 95 : 165;
+  camera.far = state.lowGraphics ? 76 : 165;
   camera.updateProjectionMatrix();
   if (scene.fog) {
-    scene.fog.density = state.lowGraphics ? 0.0088 : 0.0062;
+    scene.fog.density = state.lowGraphics ? 0.011 : 0.0062;
   }
 
   entranceLight.visible = !state.lowGraphics;
@@ -1192,7 +1246,7 @@ function populateParkedMotorcycles(motoScene) {
         inst.setMatrixAt(idx, dummy.matrix);
       });
       inst.instanceMatrix.needsUpdate = true;
-      perfLodRefs.parkedMotoInsts.push({ mesh: inst, fullCount: placements.length });
+      perfLodRefs.parkedMotoInsts.push({ mesh: inst, fullCount: placements.length, modelIdx });
       motoGroup.add(inst);
     }
   });
@@ -1760,8 +1814,11 @@ async function loadAllModels() {
       const animRoots = mergeStaticMeshesByMaterial(modelRoot, spec.animate ? gltf.animations : [], shouldCast);
       if (spec.key === 'concertStage') {
         perfLodRefs.concertAnimNodes = animRoots;
+        perfLodRefs.cullableBuildings.push({ root: modelRoot, pos: new THREE.Vector3(...spec.pos), maxDist: 82 });
       } else if (spec.key === 'krathongTables') {
         perfLodRefs.krathongTablesRoot = modelRoot;
+      } else if (spec.key === 'gate' || spec.key === 'ubosot' || spec.key === 'salaBuddha') {
+        perfLodRefs.cullableBuildings.push({ root: modelRoot, pos: new THREE.Vector3(...spec.pos), maxDist: 78 });
       }
       modelRoot.traverse((obj) => {
         if (obj.isMesh) {
@@ -1813,7 +1870,7 @@ async function loadAllModels() {
   try {
     const avatarGltf = await new Promise((resolve, reject) => {
       loader.load(
-        '/models/avatars.glb',
+        `/models/avatars.glb${MODEL_VER}`,
         (data) => resolve(data),
         (xhr) => {
           if (xhr.lengthComputable && xhr.total > 0) {
@@ -1852,7 +1909,7 @@ async function loadAllModels() {
   try {
     const wallGltf = await new Promise((resolve, reject) => {
       loader.load(
-        '/models/temple_wall.glb',
+        `/models/temple_wall.glb${MODEL_VER}`,
         (data) => resolve(data),
         (xhr) => {
           if (xhr.lengthComputable && xhr.total > 0) {
@@ -1889,7 +1946,7 @@ async function loadAllModels() {
   try {
     const motoGltf = await new Promise((resolve, reject) => {
       loader.load(
-        '/models/motorcycles.glb',
+        `/models/motorcycles.glb${MODEL_VER}`,
         (data) => resolve(data),
         (xhr) => {
           if (xhr.lengthComputable && xhr.total > 0) {
@@ -1925,6 +1982,8 @@ async function loadAllModels() {
   }
 
   dracoLoader.dispose();
+  // Ensure fast Lambert shaders & mobile LOD are applied to all newly loaded GLBs
+  applyPerfLodMode(state.lowGraphics);
   // Bake static shadows once after all models finish loading (0 ms per-frame shadow cost)
   if (!state.lowGraphics) {
     renderer.shadowMap.needsUpdate = true;
@@ -2230,6 +2289,9 @@ function spawnOrUpdatePlayer(data) {
   if (state.players.has(data.id)) return state.players.get(data.id);
 
   const built = buildAvatar(data.avatar);
+  if (state.lowGraphics) {
+    applyMobileMaterialMode(built.root, true);
+  }
   built.root.position.set(data.x || 0, data.y || 0, data.z || 59);
   built.root.rotation.y = data.rotY ?? Math.PI;
   scene.add(built.root);
@@ -2821,6 +2883,12 @@ function connectSocketAndJoin() {
           dom.hud.classList.remove('hidden');
           dom.hudNickname.textContent = state.nickname;
           updateOnlineCounter();
+
+          // Release the Lobby's 2nd WebGL context to free mobile VRAM immediately
+          try {
+            previewRenderer.dispose();
+            previewRenderer.forceContextLoss();
+          } catch {}
 
           if (voiceSyncTimer) clearInterval(voiceSyncTimer);
           voiceSyncTimer = setInterval(syncProximityVoicePeers, 2000);
@@ -3820,6 +3888,12 @@ function animate() {
     };
     window.__RENDER_STATS__ = stats;
     document.body.dataset.renderStats = JSON.stringify(stats);
+    if (dom.btnGfxToggle) {
+      const lbl = dom.btnGfxToggle.querySelector('.btn-label');
+      if (lbl) {
+        lbl.textContent = `${state.lowGraphics ? 'ประหยัด' : 'ปกติ'} (${measuredFps} FPS)`;
+      }
+    }
   }
 }
 
