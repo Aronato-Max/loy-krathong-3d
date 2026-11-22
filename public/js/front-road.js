@@ -74,17 +74,37 @@ function createVehicleSharedAssets() {
   };
 }
 
+function getMatSignature(mat) {
+  if (!mat) return 'null';
+  const c = mat.color ? mat.color.getHexString() : '';
+  const e = mat.emissive ? mat.emissive.getHexString() : '';
+  const ei = (mat.emissiveIntensity ?? 1).toFixed(2);
+  const r = (mat.roughness ?? 0.5).toFixed(2);
+  const m = (mat.metalness ?? 0).toFixed(2);
+  const op = (mat.opacity ?? 1).toFixed(2);
+  const tr = mat.transparent ? '1' : '0';
+  const sd = mat.side ?? 0;
+  const vc = mat.vertexColors ? '1' : '0';
+  const mapId = mat.map ? mat.map.uuid : '';
+  const emapId = mat.emissiveMap ? mat.emissiveMap.uuid : '';
+  return `${mat.type}|${c}|${e}|${ei}|${r}|${m}|${op}|${tr}|${sd}|${vc}|${mapId}|${emapId}`;
+}
+
 function batchVehicleGroup(group, excludeMesh) {
   group.updateMatrixWorld(true);
   const invGroup = new THREE.Matrix4().copy(group.matrixWorld).invert();
   const relMat = new THREE.Matrix4();
+  const canonicalMat = new Map();
   const buckets = new Map();
   const toRemove = [];
 
   group.traverse((obj) => {
     if (!obj.isMesh || !obj.geometry || obj === excludeMesh) return;
-    const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
-    if (!mat) return;
+    const rawMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+    if (!rawMat) return;
+    const sig = getMatSignature(rawMat);
+    if (!canonicalMat.has(sig)) canonicalMat.set(sig, rawMat);
+    const mat = canonicalMat.get(sig);
 
     const geo = obj.geometry.index ? obj.geometry.toNonIndexed() : obj.geometry.clone();
     for (const attrName of Object.keys(geo.attributes)) {

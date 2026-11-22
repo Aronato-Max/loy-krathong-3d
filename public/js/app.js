@@ -32,7 +32,7 @@ const apiUrl = (path) => `${SERVER_URL}${path}`;
 // 1. CONSTANTS, ZONES & CONFIGURATION
 // ============================================================================
 
-const MODEL_VER = '?v=3';
+const MODEL_VER = '?v=4';
 const MODEL_SPECS = [
   {
     key: 'gate',
@@ -1199,12 +1199,16 @@ function populateParkedMotorcycles(motoScene) {
     centerMat.makeTranslation(offsetX, offsetY, offsetZ);
     invRootMat.copy(tpl.matrixWorld).invert();
 
-    // Batch geometries by shared material into one InstancedMesh per material
+    // Batch geometries by shared material signature into one InstancedMesh per material
+    const canonicalMat = new Map();
     const buckets = new Map();
     tpl.traverse((obj) => {
       if (!obj.isMesh || !obj.geometry) return;
-      const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
-      if (!mat) return;
+      const rawMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+      if (!rawMat) return;
+      const sig = getMaterialSignature(rawMat);
+      if (!canonicalMat.has(sig)) canonicalMat.set(sig, rawMat);
+      const mat = canonicalMat.get(sig);
 
       let geo = obj.geometry.index ? obj.geometry.toNonIndexed() : obj.geometry.clone();
       // Keep consistent attributes across merged parts
@@ -1456,7 +1460,7 @@ function buildSpecialZones() {
   addCollisionBox(10.2, 19.8, 5.2, 8.8, 'krathong-contest');
 
   // 3) สระน้ำและท่าน้ำจุดลอยกระทง: X: 37..55, Z: -27..+3 และท่าน้ำที่ (35.4, -12)
-  const pondGeo = new THREE.PlaneGeometry(18, 30, 24, 36);
+  const pondGeo = new THREE.PlaneGeometry(18, 30, 1, 1);
   const pondMat = new THREE.MeshStandardMaterial({
     color: 0x0b3b59,
     emissive: 0x062138,
@@ -1545,6 +1549,47 @@ function createFallbackWireframe(spec) {
   return group;
 }
 
+function getMaterialSignature(mat) {
+  if (!mat) return 'null';
+  const c = mat.color ? mat.color.getHexString() : '';
+  const e = mat.emissive ? mat.emissive.getHexString() : '';
+  const ei = (mat.emissiveIntensity ?? 1).toFixed(2);
+  const r = (mat.roughness ?? 0.5).toFixed(2);
+  const m = (mat.metalness ?? 0).toFixed(2);
+  const op = (mat.opacity ?? 1).toFixed(2);
+  const tr = mat.transparent ? '1' : '0';
+  const sd = mat.side ?? 0;
+  const vc = mat.vertexColors ? '1' : '0';
+  const mapId = mat.map ? mat.map.uuid : '';
+  const emapId = mat.emissiveMap ? mat.emissiveMap.uuid : '';
+  return `${mat.type}|${c}|${e}|${ei}|${r}|${m}|${op}|${tr}|${sd}|${vc}|${mapId}|${emapId}`;
+}
+
+function normalizeMergedGeometryAttributes(geo, useVertexColors) {
+  for (const attrName of Object.keys(geo.attributes)) {
+    if (
+      attrName !== 'position' &&
+      attrName !== 'normal' &&
+      attrName !== 'uv' &&
+      !(useVertexColors && attrName === 'color')
+    ) {
+      geo.deleteAttribute(attrName);
+    }
+  }
+  if (!geo.attributes.normal) geo.computeVertexNormals();
+  if (!geo.attributes.uv) {
+    geo.setAttribute(
+      'uv',
+      new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2)
+    );
+  }
+  if (useVertexColors && !geo.attributes.color) {
+    const colors = new Float32Array(geo.attributes.position.count * 3);
+    colors.fill(1);
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
+}
+
 function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = false, extraSkipObjects = []) {
   const animatedNames = new Set();
   for (const clip of animatedClips || []) {
@@ -1573,34 +1618,29 @@ function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = fals
   const invRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
   const relMat = new THREE.Matrix4();
 
+  // Group static meshes by material signature (deduplicates identical materials across GLB nodes)
+  const canonicalMat = new Map();
   const buckets = new Map();
   root.traverse((obj) => {
     if (!obj.isMesh || obj.isSkinnedMesh || obj.isInstancedMesh || !obj.geometry) return;
     if (skipNodes.has(obj)) return;
     if (Array.isArray(obj.material) || !obj.material) return;
 
-    const mat = obj.material;
+    const sig = getMaterialSignature(obj.material);
+    if (!canonicalMat.has(sig)) canonicalMat.set(sig, obj.material);
+    const mat = canonicalMat.get(sig);
+    obj.material = mat;
     if (!buckets.has(mat)) buckets.set(mat, []);
     buckets.get(mat).push(obj);
   });
 
   for (const [mat, meshes] of buckets) {
     if (meshes.length <= 1) continue;
+    const useVC = Boolean(mat.vertexColors);
     const geos = [];
     for (const m of meshes) {
       const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
-      for (const attrName of Object.keys(geo.attributes)) {
-        if (attrName !== 'position' && attrName !== 'normal' && attrName !== 'uv') {
-          geo.deleteAttribute(attrName);
-        }
-      }
-      if (!geo.attributes.normal) geo.computeVertexNormals();
-      if (!geo.attributes.uv) {
-        geo.setAttribute(
-          'uv',
-          new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2)
-        );
-      }
+      normalizeMergedGeometryAttributes(geo, useVC);
       relMat.multiplyMatrices(invRoot, m.matrixWorld);
       geo.applyMatrix4(relMat);
       geos.push(geo);
@@ -1620,6 +1660,67 @@ function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = fals
     mergedMesh.receiveShadow = true;
     root.add(mergedMesh);
   }
+
+  // Also batch rigid leaf meshes inside each animated bone node (cuts avatar & stage draw calls by 60%+)
+  if (animatedNames.size > 0) {
+    const animNodes = [];
+    root.traverse((obj) => {
+      if (obj.name && animatedNames.has(obj.name)) animNodes.push(obj);
+    });
+    for (const bone of animNodes) {
+      const directMeshes = [];
+      for (const child of bone.children) {
+        if (
+          child.isMesh &&
+          !child.isSkinnedMesh &&
+          child.children.length === 0 &&
+          (!child.name || !animatedNames.has(child.name)) &&
+          child.geometry &&
+          child.material &&
+          !Array.isArray(child.material)
+        ) {
+          directMeshes.push(child);
+        }
+      }
+      if (directMeshes.length <= 1) continue;
+
+      bone.updateMatrixWorld(true);
+      const invBone = new THREE.Matrix4().copy(bone.matrixWorld).invert();
+      const boneBuckets = new Map();
+      for (const m of directMeshes) {
+        const sig = getMaterialSignature(m.material);
+        if (!canonicalMat.has(sig)) canonicalMat.set(sig, m.material);
+        const mat = canonicalMat.get(sig);
+        m.material = mat;
+        if (!boneBuckets.has(mat)) boneBuckets.set(mat, []);
+        boneBuckets.get(mat).push(m);
+      }
+      for (const [mat, bMeshes] of boneBuckets) {
+        if (bMeshes.length <= 1) continue;
+        const useVC = Boolean(mat.vertexColors);
+        const geos = [];
+        for (const m of bMeshes) {
+          const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+          normalizeMergedGeometryAttributes(geo, useVC);
+          relMat.multiplyMatrices(invBone, m.matrixWorld);
+          geo.applyMatrix4(relMat);
+          geos.push(geo);
+        }
+        const merged = mergeGeometries(geos, false);
+        geos.forEach((g) => g.dispose());
+        if (!merged) continue;
+        for (const m of bMeshes) {
+          if (m.parent) m.parent.remove(m);
+          m.geometry.dispose();
+        }
+        const mergedMesh = new THREE.Mesh(merged, mat);
+        mergedMesh.castShadow = castShadow;
+        mergedMesh.receiveShadow = true;
+        bone.add(mergedMesh);
+      }
+    }
+  }
+
   return topAnimatedRoots;
 }
 
@@ -1884,6 +1985,8 @@ async function loadAllModels() {
     avatarBank.loaded = true;
     avatarBank.scene = avatarGltf.scene;
     avatarBank.animations = avatarGltf.animations || [];
+    // Batch rigid leaf meshes inside each avatar's bone nodes (~49 -> ~16 draw calls per player!)
+    mergeStaticMeshesByMaterial(avatarBank.scene, avatarBank.animations, false);
     perFileProgress[avatarIdx] = 1;
     state.modelReport.push({
       key: 'avatars',
@@ -3704,11 +3807,17 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
     tempVec.project(camera);
 
     if (tempVec.z > 1 || dist > 48) {
-      p.labelEls.wrap.style.display = 'none';
+      if (p.labelEls.wrap._vis !== false) {
+        p.labelEls.wrap.style.display = 'none';
+        p.labelEls.wrap._vis = false;
+      }
     } else {
-      const sx = (tempVec.x * 0.5 + 0.5) * window.innerWidth;
-      const sy = (-tempVec.y * 0.5 + 0.5) * window.innerHeight;
-      p.labelEls.wrap.style.display = 'flex';
+      const sx = Math.round((tempVec.x * 0.5 + 0.5) * window.innerWidth);
+      const sy = Math.round((-tempVec.y * 0.5 + 0.5) * window.innerHeight);
+      if (p.labelEls.wrap._vis !== true) {
+        p.labelEls.wrap.style.display = 'flex';
+        p.labelEls.wrap._vis = true;
+      }
       p.labelEls.wrap.style.transform = `translate3d(${sx}px, ${sy}px, 0) translate(-50%, -100%)`;
     }
   }
@@ -3728,11 +3837,17 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
     const dist = tempVec.distanceTo(camera.position);
     tempVec.project(camera);
     if (tempVec.z > 1 || dist > 36) {
-      item.labelEl.style.display = 'none';
+      if (item.labelEl._vis !== false) {
+        item.labelEl.style.display = 'none';
+        item.labelEl._vis = false;
+      }
     } else {
-      const sx = (tempVec.x * 0.5 + 0.5) * window.innerWidth;
-      const sy = (-tempVec.y * 0.5 + 0.5) * window.innerHeight;
-      item.labelEl.style.display = 'flex';
+      const sx = Math.round((tempVec.x * 0.5 + 0.5) * window.innerWidth);
+      const sy = Math.round((-tempVec.y * 0.5 + 0.5) * window.innerHeight);
+      if (item.labelEl._vis !== true) {
+        item.labelEl.style.display = 'flex';
+        item.labelEl._vis = true;
+      }
       item.labelEl.style.transform = `translate3d(${sx}px, ${sy}px, 0) translate(-50%, -100%)`;
     }
   }
@@ -3774,11 +3889,17 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
     const dist = tempVec.distanceTo(camera.position);
     tempVec.project(camera);
     if (tempVec.z > 1 || dist > 48 || remaining < 4) {
-      item.labelEl.style.display = 'none';
+      if (item.labelEl._vis !== false) {
+        item.labelEl.style.display = 'none';
+        item.labelEl._vis = false;
+      }
     } else {
-      const sx = (tempVec.x * 0.5 + 0.5) * window.innerWidth;
-      const sy = (-tempVec.y * 0.5 + 0.5) * window.innerHeight;
-      item.labelEl.style.display = 'flex';
+      const sx = Math.round((tempVec.x * 0.5 + 0.5) * window.innerWidth);
+      const sy = Math.round((-tempVec.y * 0.5 + 0.5) * window.innerHeight);
+      if (item.labelEl._vis !== true) {
+        item.labelEl.style.display = 'flex';
+        item.labelEl._vis = true;
+      }
       item.labelEl.style.transform = `translate3d(${sx}px, ${sy}px, 0) translate(-50%, -100%)`;
     }
   }

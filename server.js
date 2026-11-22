@@ -45,6 +45,13 @@ app.use(
     etag: true
   })
 );
+// Never cache index.html or config.js so mobile/PC browsers always load the latest version
+app.use((req, res, next) => {
+  if (req.path === '/' || req.path.endsWith('.html') || req.path === '/config.js') {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules/three')));
 
