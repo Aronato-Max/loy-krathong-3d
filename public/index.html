@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=4">
+  <link rel="stylesheet" href="/css/style.css?v=5">
   <script type="importmap">
     {
       "imports": {
@@ -50,19 +50,29 @@
       </header>
 
       <div class="lobby-body">
-        <!-- 360° Avatar Preview -->
+        <!-- 360° Avatar Preview & Left/Right Carousel Controls -->
         <div class="preview-column">
           <div class="preview-stage">
             <canvas id="preview-canvas"></canvas>
-            <button type="button" id="btn-preview-wave" class="preview-wave-btn" title="ลองท่าโบกมือทักทาย">
-              👋 ลองโบกมือ
+            <button type="button" id="btn-avatar-prev" class="preview-nav-btn preview-nav-prev" aria-label="ตัวละครก่อนหน้า">
+              <span aria-hidden="true">◀</span>
+            </button>
+            <button type="button" id="btn-avatar-next" class="preview-nav-btn preview-nav-next" aria-label="ตัวละครถัดไป">
+              <span aria-hidden="true">▶</span>
+            </button>
+            <button type="button" id="btn-preview-wave" class="preview-wave-btn" aria-label="ลองท่าโบกมือทักทาย">
+              <span aria-hidden="true">👋</span> ลองโบกมือ
             </button>
             <div class="preview-hint">ลากเพื่อหมุนตัวละคร 360°</div>
           </div>
-          <div id="preview-selected-name" class="preview-selected-name">หนุ่มคาร์โก้</div>
+          <div class="preview-meta">
+            <div id="preview-selected-name" class="preview-selected-name" aria-live="polite">🧢 หนุ่มคาร์โก้ (กลาง)</div>
+            <span id="preview-counter" class="preview-counter">1 / 10</span>
+          </div>
+          <div id="avatar-dots" class="avatar-dots" role="radiogroup" aria-label="เลือกตัวละคร 3 มิติ (10 แบบ)"></div>
         </div>
 
-        <!-- Character Selection & Registration Form -->
+        <!-- Compact Registration Form -->
         <form id="lobby-form" class="custom-column">
           <div class="form-group">
             <label for="input-nickname">ชื่อเล่น (แสดงบนหัวตัวละคร)</label>
@@ -78,11 +88,6 @@
               <option value="room-3">🏮 ลานงาน 3</option>
               <option value="room-4">🏮 ลานงาน 4</option>
             </select>
-          </div>
-
-          <div class="form-group">
-            <span class="field-label">เลือกตัวละคร 3 มิติ (10 แบบ)</span>
-            <div id="avatar-grid" class="avatar-grid" role="radiogroup" aria-label="เลือกตัวละคร"></div>
           </div>
 
           <div class="toggles-group">
@@ -317,8 +322,8 @@
     </div>
   </dialog>
 
-  <script src="/config.js?v=4"></script>
+  <script src="/config.js?v=5"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=4"></script>
+  <script type="module" src="/js/app.js?v=5"></script>
 </body>
 </html>

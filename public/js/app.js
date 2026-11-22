@@ -183,9 +183,12 @@ const dom = {
   lobbyOverlay: document.getElementById('lobby-overlay'),
   lobbyForm: document.getElementById('lobby-form'),
   previewCanvas: document.getElementById('preview-canvas'),
+  btnAvatarPrev: document.getElementById('btn-avatar-prev'),
+  btnAvatarNext: document.getElementById('btn-avatar-next'),
   btnPreviewWave: document.getElementById('btn-preview-wave'),
   previewSelectedName: document.getElementById('preview-selected-name'),
-  avatarGrid: document.getElementById('avatar-grid'),
+  previewCounter: document.getElementById('preview-counter'),
+  avatarDots: document.getElementById('avatar-dots'),
   inputNickname: document.getElementById('input-nickname'),
   selectRoom: document.getElementById('select-room'),
   optMic: document.getElementById('opt-mic'),
@@ -2155,9 +2158,11 @@ function buildAvatar(rawConfig = {}) {
   }
   const headY = Number.isFinite(box.max.y) ? Math.max(0.85, box.max.y - (box.min.y || 0)) : 1.35;
 
-  // Attach right-hand socket for holding Krathong
+  // Attach right-hand socket for holding Krathong & grab bones for clean raised-arm waving
   const handSocket = new THREE.Group();
+  const armR = model.getObjectByName(`${spec.suffix}_ArmR`);
   const forearmR = model.getObjectByName(`${spec.suffix}_ForearmR`);
+  const headBone = model.getObjectByName(`${spec.suffix}_Head`);
   if (forearmR) {
     handSocket.position.set(0, -0.2, 0.16);
     forearmR.add(handSocket);
@@ -2166,34 +2171,30 @@ function buildAvatar(rawConfig = {}) {
     root.add(handSocket);
   }
 
-  // Bind Idle, Walk, Wave AnimationClips
+  // Bind Idle & Walk AnimationClips (right-arm wave is layered cleanly on top so Idle/Walk never drag the arm down)
   const mixer = new THREE.AnimationMixer(model);
   const idleClip = THREE.AnimationClip.findByName(avatarBank.animations, `Idle_${spec.suffix}`);
   const walkClip = THREE.AnimationClip.findByName(avatarBank.animations, `Walk_${spec.suffix}`);
-  const waveClip = THREE.AnimationClip.findByName(avatarBank.animations, `Wave_${spec.suffix}`);
 
   const idleAction = idleClip ? mixer.clipAction(idleClip) : null;
   const walkAction = walkClip ? mixer.clipAction(walkClip) : null;
-  const waveAction = waveClip ? mixer.clipAction(waveClip) : null;
 
-  if (waveAction) {
-    waveAction.setLoop(THREE.LoopOnce, 1);
-    waveAction.clampWhenFinished = false;
-  }
   if (idleAction) {
     idleAction.play();
   }
 
   let currentLocomotion = 'idle';
-  let waveUntil = 0;
+  const WAVE_DURATION = 1.85;
+  let waveElapsed = -1;
+  const waveArmEuler = new THREE.Euler(0, 0, 0, 'XYZ');
+  const waveArmQuat = new THREE.Quaternion();
+  const waveForearmEuler = new THREE.Euler(0, 0, 0, 'XYZ');
+  const waveForearmQuat = new THREE.Quaternion();
+  const waveHeadQuat = new THREE.Quaternion();
+  const zAxis = new THREE.Vector3(0, 0, 1);
 
   function triggerWave() {
-    if (!waveAction) return;
-    const now = performance.now();
-    waveAction.reset();
-    waveAction.setEffectiveWeight(1);
-    waveAction.fadeIn(0.14).play();
-    waveUntil = now + (waveClip.duration || 1.6) * 1000;
+    waveElapsed = 0;
   }
 
   function update(dt, isMoving = false, isRunning = false) {
@@ -2214,14 +2215,46 @@ function buildAvatar(rawConfig = {}) {
       walkAction.timeScale = isRunning ? 1.55 : 1.0;
     }
 
-    if (waveUntil > 0 && performance.now() > waveUntil) {
-      waveUntil = 0;
-      if (waveAction) {
-        waveAction.fadeOut(0.2);
+    mixer.update(dt);
+
+    // Layered right-arm wave override: lifts arm outward & high above head, waves forearm 3x, lowers smoothly
+    if (waveElapsed >= 0) {
+      waveElapsed += dt;
+      if (waveElapsed >= WAVE_DURATION) {
+        waveElapsed = -1;
+      } else {
+        const t = waveElapsed;
+        let lift = 1;
+        if (t < 0.28) {
+          const u = t / 0.28;
+          lift = 1 - Math.pow(1 - u, 3);
+        } else if (t > 1.50) {
+          const u = (t - 1.50) / (WAVE_DURATION - 1.50);
+          lift = 1 - u * u * (3 - 2 * u);
+        }
+
+        const wavePhase = Math.max(0, t - 0.18);
+        const blend = Math.min(1, lift / 0.16);
+        const armOsc = Math.sin(wavePhase * 11.5) * 0.18 * lift;
+        const forearmOsc = (0.14 + Math.sin(wavePhase * 11.5 - 0.55) * 0.44) * lift;
+
+        if (armR) {
+          // Sweep outward (-Z up to -150deg) + tilt slightly forward (+X) so hand raises clearly in front
+          waveArmEuler.set(0.28 * lift, 0, -2.62 * lift + armOsc, 'XYZ');
+          waveArmQuat.setFromEuler(waveArmEuler);
+          armR.quaternion.slerp(waveArmQuat, blend);
+        }
+        if (forearmR) {
+          waveForearmEuler.set(0.12 * lift, 0, forearmOsc, 'XYZ');
+          waveForearmQuat.setFromEuler(waveForearmEuler);
+          forearmR.quaternion.slerp(waveForearmQuat, blend);
+        }
+        if (headBone) {
+          waveHeadQuat.setFromAxisAngle(zAxis, Math.sin(wavePhase * 5.75) * 0.08 * lift);
+          headBone.quaternion.multiply(waveHeadQuat);
+        }
       }
     }
-
-    mixer.update(dt);
   }
 
   return {
@@ -2257,42 +2290,51 @@ previewPedestal.position.y = -0.05;
 previewScene.add(previewPedestal);
 
 let previewAvatar = null;
-let previewYaw = 0.28;
+let previewYaw = 0.24;
 let previewDragging = false;
 let previewLastX = 0;
+let previewWaveFocusUntil = 0;
 
-function renderAvatarCards() {
-  dom.avatarGrid.replaceChildren();
-  for (const item of AVATAR_CATALOG) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'avatar-card';
-    btn.dataset.avatarId = item.id;
-    btn.setAttribute('role', 'radio');
-    const isSelected = state.avatarConfig.avatarId === item.id;
-    btn.setAttribute('aria-checked', String(isSelected));
-    if (isSelected) btn.classList.add('selected');
+function getSelectedAvatarIndex() {
+  const idx = AVATAR_CATALOG.findIndex((item) => item.id === state.avatarConfig.avatarId);
+  return idx >= 0 ? idx : 0;
+}
 
-    const iconEl = document.createElement('span');
-    iconEl.className = 'avatar-card-icon';
-    iconEl.textContent = item.icon;
+function renderAvatarDots() {
+  if (!dom.avatarDots) return;
+  dom.avatarDots.replaceChildren();
+  const activeIdx = getSelectedAvatarIndex();
+  AVATAR_CATALOG.forEach((item, index) => {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'avatar-dot';
+    dot.dataset.avatarId = item.id;
+    dot.setAttribute('role', 'radio');
+    dot.setAttribute('aria-label', `${item.label} (${item.tag}) ตัวที่ ${index + 1} จาก ${AVATAR_CATALOG.length}`);
+    const isSelected = index === activeIdx;
+    dot.setAttribute('aria-checked', String(isSelected));
+    if (isSelected) dot.classList.add('selected');
 
-    const nameEl = document.createElement('span');
-    nameEl.className = 'avatar-card-name';
-    nameEl.textContent = item.label;
-
-    const tagEl = document.createElement('span');
-    tagEl.className = 'avatar-card-tag';
-    tagEl.textContent = item.tag;
-
-    btn.append(iconEl, nameEl, tagEl);
-    btn.addEventListener('click', () => {
-      state.avatarConfig = { avatarId: item.id };
-      renderAvatarCards();
-      refreshPreviewAvatar();
+    dot.addEventListener('click', () => {
+      selectAvatarByIndex(index);
     });
-    dom.avatarGrid.appendChild(btn);
-  }
+    dom.avatarDots.appendChild(dot);
+  });
+}
+
+function selectAvatarByIndex(rawIndex) {
+  const total = AVATAR_CATALOG.length;
+  const index = ((rawIndex % total) + total) % total;
+  const item = AVATAR_CATALOG[index];
+  state.avatarConfig = { avatarId: item.id };
+  previewYaw = 0.22;
+  previewWaveFocusUntil = 0;
+  renderAvatarDots();
+  refreshPreviewAvatar();
+}
+
+function stepAvatar(delta) {
+  selectAvatarByIndex(getSelectedAvatarIndex() + delta);
 }
 
 function refreshPreviewAvatar() {
@@ -2303,19 +2345,51 @@ function refreshPreviewAvatar() {
   previewAvatar.root.rotation.y = previewYaw;
   previewScene.add(previewAvatar.root);
 
-  const spec = AVATAR_BY_ID.get(state.avatarConfig.avatarId) || AVATAR_CATALOG[0];
+  const idx = getSelectedAvatarIndex();
+  const spec = AVATAR_CATALOG[idx] || AVATAR_CATALOG[0];
   dom.previewSelectedName.textContent = `${spec.icon} ${spec.label} (${spec.tag})`;
+  if (dom.previewCounter) {
+    dom.previewCounter.textContent = `${idx + 1} / ${AVATAR_CATALOG.length}`;
+  }
 
-  // Frame camera to fit tall / medium / chibi characters nicely
+  // Frame camera with generous top headroom so raised waving hand stays cleanly inside viewport
   const h = previewAvatar.headY || 1.3;
-  const dist = Math.max(1.85, h * 1.82);
-  previewCamera.position.set(0, h * 0.62 + 0.12, dist);
-  previewCamera.lookAt(0, h * 0.48, 0);
+  const dist = Math.max(2.05, h * 2.02);
+  previewCamera.position.set(0, h * 0.65 + 0.14, dist);
+  previewCamera.lookAt(0, h * 0.54, 0);
+}
+
+for (const navBtn of [dom.btnAvatarPrev, dom.btnAvatarNext, dom.btnPreviewWave]) {
+  if (navBtn) {
+    navBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+  }
+}
+
+if (dom.btnAvatarPrev) {
+  dom.btnAvatarPrev.addEventListener('click', () => stepAvatar(-1));
+}
+if (dom.btnAvatarNext) {
+  dom.btnAvatarNext.addEventListener('click', () => stepAvatar(1));
 }
 
 dom.btnPreviewWave.addEventListener('click', () => {
   if (previewAvatar) {
     previewAvatar.triggerWave();
+    // Gently hold front-facing pose during wave so raised hand is clearly visible
+    previewWaveFocusUntil = performance.now() + 1900;
+  }
+});
+
+window.addEventListener('keydown', (e) => {
+  if (state.joined || dom.lobbyOverlay.classList.contains('hidden')) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    stepAvatar(-1);
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    stepAvatar(1);
   }
 });
 
@@ -3967,10 +4041,17 @@ function animate() {
   const elapsed = clock.elapsedTime;
 
   if (!state.joined) {
-    // Gentle lobby preview turntable + Idle/Wave animation + background world preview
+    // Gentle lobby preview turntable + front-focus during Wave + background world preview
     if (previewAvatar) {
       if (!previewDragging) {
-        previewYaw += dt * 0.55;
+        if (performance.now() < previewWaveFocusUntil) {
+          // Shortest-angle lerp toward slight front 3/4 pose (0.14 rad) while waving
+          const targetYaw = 0.14;
+          const diff = Math.atan2(Math.sin(targetYaw - previewYaw), Math.cos(targetYaw - previewYaw));
+          previewYaw += diff * Math.min(1, dt * 8);
+        } else {
+          previewYaw += dt * 0.55;
+        }
         previewAvatar.root.rotation.y = previewYaw;
       }
       previewAvatar.update(dt, false, false);
@@ -4062,7 +4143,7 @@ async function bootstrap() {
   dom.loadingScreen.classList.add('hidden');
   dom.lobbyOverlay.classList.remove('hidden');
   resizePreviewCanvas();
-  renderAvatarCards();
+  renderAvatarDots();
   refreshPreviewAvatar();
   fetchRoomsStatus();
 }
