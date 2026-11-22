@@ -730,6 +730,49 @@ export function upgradeRoadMotorcycles(roadState, motoScene, avatarScene) {
       }
     }
 
+    // Batch the posed bike + driver + passenger meshes by shared material (~440 -> ~65 draw calls)
+    newGroup.updateMatrixWorld(true);
+    const invGroup = new THREE.Matrix4().copy(newGroup.matrixWorld).invert();
+    const relMat = new THREE.Matrix4();
+    const buckets = new Map();
+    const toRemove = [];
+
+    newGroup.traverse((obj) => {
+      if (!obj.isMesh || !obj.geometry || obj === beam) return;
+      const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+      if (!mat) return;
+
+      const geo = obj.geometry.index ? obj.geometry.toNonIndexed() : obj.geometry.clone();
+      for (const attrName of Object.keys(geo.attributes)) {
+        if (attrName !== 'position' && attrName !== 'normal' && attrName !== 'uv') {
+          geo.deleteAttribute(attrName);
+        }
+      }
+      if (!geo.attributes.normal) geo.computeVertexNormals();
+      if (!geo.attributes.uv) {
+        geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+      }
+      relMat.multiplyMatrices(invGroup, obj.matrixWorld);
+      geo.applyMatrix4(relMat);
+
+      if (!buckets.has(mat)) buckets.set(mat, []);
+      buckets.get(mat).push(geo);
+      toRemove.push(obj);
+    });
+
+    if (buckets.size > 0) {
+      for (const obj of toRemove) {
+        if (obj.parent) obj.parent.remove(obj);
+      }
+      for (const [mat, geos] of buckets) {
+        const merged = mergeGeometries(geos, false);
+        geos.forEach((g) => g.dispose());
+        if (merged) {
+          newGroup.add(new THREE.Mesh(merged, mat));
+        }
+      }
+    }
+
     // Swap out the placeholder motorcycle group preserving live position/visibility
     const wasVisible = v.mesh.visible;
     newGroup.position.copy(v.mesh.position);

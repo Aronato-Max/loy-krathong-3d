@@ -277,7 +277,8 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.12;
+renderer.shadowMap.autoUpdate = false;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x060a18);
@@ -298,17 +299,18 @@ let frontRoadState = null;
 function applyGraphicsMode(low) {
   state.lowGraphics = Boolean(low);
   renderer.setPixelRatio(
-    state.lowGraphics ? 1 : Math.min(window.devicePixelRatio || 1, 2)
+    state.lowGraphics ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)
   );
   renderer.shadowMap.enabled = !state.lowGraphics;
   if (!state.lowGraphics) {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.needsUpdate = true;
   }
   if (skyRefs.stars) {
     skyRefs.stars.visible = true;
   }
   if (skyRefs.lanterns) {
-    skyRefs.lanterns.count = state.lowGraphics ? 26 : 64;
+    skyRefs.lanterns.count = state.lowGraphics ? 24 : 56;
     skyRefs.lanterns.instanceMatrix.needsUpdate = true;
   }
   if (gardenState) {
@@ -336,11 +338,11 @@ const skyRefs = {
   staticSigns: []
 };
 
-// Lighting
-const hemiLight = new THREE.HemisphereLight(0x7c93e6, 0x1e2e20, 1.15);
+// Lighting (kept compact at 3 key PointLights + Hemi + Moon for fast fragment shaders on mobile & PC)
+const hemiLight = new THREE.HemisphereLight(0x8aa2f0, 0x243828, 1.48);
 scene.add(hemiLight);
 
-const moonLight = new THREE.DirectionalLight(0xdbeafe, 1.35);
+const moonLight = new THREE.DirectionalLight(0xdbeafe, 1.45);
 moonLight.position.set(25, 55, -60);
 moonLight.castShadow = true;
 moonLight.shadow.mapSize.set(1024, 1024);
@@ -352,40 +354,18 @@ moonLight.shadow.camera.top = 65;
 moonLight.shadow.camera.bottom = -65;
 scene.add(moonLight);
 
-// Subtle warm ambient festival fill lights (kept compact for performance)
-const entranceLight = new THREE.PointLight(0xffb347, 26, 30, 1.4);
-entranceLight.position.set(0, 6, 52);
+const entranceLight = new THREE.PointLight(0xffbe55, 34, 38, 1.3);
+entranceLight.position.set(0, 6.2, 54);
 scene.add(entranceLight);
 
-const entranceFrontLight = new THREE.PointLight(0xfde68a, 24, 28, 1.4);
-entranceFrontLight.position.set(0, 5.5, 62);
-scene.add(entranceFrontLight);
-
-const pierLight = new THREE.PointLight(0xffbe55, 24, 24, 1.5);
-pierLight.position.set(35.4, 4.2, -12);
-scene.add(pierLight);
-
-const stageLight = new THREE.PointLight(0xec4899, 32, 34, 1.3);
+const stageLight = new THREE.PointLight(0xec4899, 34, 38, 1.3);
 stageLight.position.set(-21, 7, -47);
 scene.add(stageLight);
 
-const ubosotLight = new THREE.PointLight(0xfde68a, 24, 28, 1.4);
-ubosotLight.position.set(15, 7, -34);
-scene.add(ubosotLight);
-
 // Warm golden interior lighting for Sala Buddha (illuminates Buddha statue & tiled floor)
-const salaMainLight = new THREE.PointLight(0xffd27d, 40, 22, 1.2);
-salaMainLight.position.set(31.2, 4.4, 13);
+const salaMainLight = new THREE.PointLight(0xffd27d, 52, 26, 1.2);
+salaMainLight.position.set(31.2, 4.6, 13);
 scene.add(salaMainLight);
-
-const salaFrontLight = new THREE.PointLight(0xfef08a, 24, 18, 1.3);
-salaFrontLight.position.set(25.8, 4.2, 13);
-scene.add(salaFrontLight);
-
-const salaAltarSpot = new THREE.SpotLight(0xffdf80, 58, 16, Math.PI / 4, 0.55, 1.2);
-salaAltarSpot.position.set(30.4, 5.2, 13);
-salaAltarSpot.target.position.set(34.6, 2.2, 13);
-scene.add(salaAltarSpot, salaAltarSpot.target);
 
 // ============================================================================
 // 4. COLLISION SYSTEM (AABBs & Rotated Boxes)
@@ -1441,7 +1421,78 @@ function createFallbackWireframe(spec) {
   return group;
 }
 
-function createFenceRun(templateRoot, startX, startZ, endX, endZ) {
+function mergeStaticMeshesByMaterial(root, animatedClips = [], castShadow = false) {
+  const animatedNames = new Set();
+  for (const clip of animatedClips || []) {
+    for (const track of clip.tracks || []) {
+      const nodeName = track.name.split('.')[0];
+      if (nodeName) animatedNames.add(nodeName);
+    }
+  }
+
+  const skipNodes = new Set();
+  if (animatedNames.size > 0) {
+    root.traverse((obj) => {
+      if (obj.name && animatedNames.has(obj.name)) {
+        obj.traverse((desc) => skipNodes.add(desc));
+      }
+    });
+  }
+
+  root.updateMatrixWorld(true);
+  const invRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const relMat = new THREE.Matrix4();
+
+  const buckets = new Map();
+  root.traverse((obj) => {
+    if (!obj.isMesh || obj.isSkinnedMesh || obj.isInstancedMesh || !obj.geometry) return;
+    if (skipNodes.has(obj)) return;
+    if (Array.isArray(obj.material) || !obj.material) return;
+
+    const mat = obj.material;
+    if (!buckets.has(mat)) buckets.set(mat, []);
+    buckets.get(mat).push(obj);
+  });
+
+  for (const [mat, meshes] of buckets) {
+    if (meshes.length <= 1) continue;
+    const geos = [];
+    for (const m of meshes) {
+      const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+      for (const attrName of Object.keys(geo.attributes)) {
+        if (attrName !== 'position' && attrName !== 'normal' && attrName !== 'uv') {
+          geo.deleteAttribute(attrName);
+        }
+      }
+      if (!geo.attributes.normal) geo.computeVertexNormals();
+      if (!geo.attributes.uv) {
+        geo.setAttribute(
+          'uv',
+          new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2)
+        );
+      }
+      relMat.multiplyMatrices(invRoot, m.matrixWorld);
+      geo.applyMatrix4(relMat);
+      geos.push(geo);
+    }
+
+    const merged = mergeGeometries(geos, false);
+    geos.forEach((g) => g.dispose());
+    if (!merged) continue;
+
+    for (const m of meshes) {
+      if (m.parent) m.parent.remove(m);
+      m.geometry.dispose();
+    }
+
+    const mergedMesh = new THREE.Mesh(merged, mat);
+    mergedMesh.castShadow = castShadow;
+    mergedMesh.receiveShadow = true;
+    root.add(mergedMesh);
+  }
+}
+
+function createFenceRun(parentGroup, templateRoot, startX, startZ, endX, endZ) {
   const dx = endX - startX;
   const dz = endZ - startZ;
   const totalLen = Math.hypot(dx, dz);
@@ -1481,34 +1532,34 @@ function createFenceRun(templateRoot, startX, startZ, endX, endZ) {
       }
     }
 
-    chunk.traverse((obj) => {
-      if (obj.isMesh) {
-        obj.castShadow = !state.lowGraphics;
-        obj.receiveShadow = true;
-      }
-    });
-
     runGroup.add(chunk);
     offsetX += takeBays * 2.5;
     remainingBays -= takeBays;
     chunkIdx++;
   }
 
-  scene.add(runGroup);
+  parentGroup.add(runGroup);
 }
 
 function buildTemplePerimeterWalls(fenceScene) {
   const templateRoot = fenceScene.getObjectByName('TempleFence_Root') || fenceScene;
+  const wallsGroup = new THREE.Group();
+  wallsGroup.name = 'TemplePerimeterWalls';
+
   // Front-left from outside left elephant pedestal (-6.8, 54) to (-42.0, 54)
-  createFenceRun(templateRoot, -6.8, 54, -42.0, 54);
+  createFenceRun(wallsGroup, templateRoot, -6.8, 54, -42.0, 54);
   // Front-right from outside right elephant pedestal (+6.8, 54) to (+57.0, 54)
-  createFenceRun(templateRoot, 6.8, 54, 57.0, 54);
+  createFenceRun(wallsGroup, templateRoot, 6.8, 54, 57.0, 54);
   // West (left) wall from (-42.0, 54) to (-42.0, -58.5)
-  createFenceRun(templateRoot, -42.0, 54, -42.0, -58.5);
+  createFenceRun(wallsGroup, templateRoot, -42.0, 54, -42.0, -58.5);
   // East (right) wall from (+57.0, 54) to (+57.0, -58.5)
-  createFenceRun(templateRoot, 57.0, 54, 57.0, -58.5);
+  createFenceRun(wallsGroup, templateRoot, 57.0, 54, 57.0, -58.5);
   // North (back) wall from (-42.0, -58.5) to (+57.0, -58.5)
-  createFenceRun(templateRoot, -42.0, -58.5, 57.0, -58.5);
+  createFenceRun(wallsGroup, templateRoot, -42.0, -58.5, 57.0, -58.5);
+
+  // Batch ~4,500 fence draw calls down into ~6 merged static meshes!
+  mergeStaticMeshesByMaterial(wallsGroup, [], false);
+  scene.add(wallsGroup);
 }
 
 async function loadAllModels() {
@@ -1562,9 +1613,12 @@ async function loadAllModels() {
       }
       modelRoot.position.set(...spec.pos);
       modelRoot.rotation.y = spec.rotY;
+      // Only large architectural buildings cast static baked shadows (skip high-poly tables/tunnels)
+      const shouldCast = !state.lowGraphics && (spec.key === 'gate' || spec.key === 'ubosot' || spec.key === 'salaBuddha');
+      mergeStaticMeshesByMaterial(modelRoot, spec.animate ? gltf.animations : [], shouldCast);
       modelRoot.traverse((obj) => {
         if (obj.isMesh) {
-          obj.castShadow = !state.lowGraphics;
+          obj.castShadow = shouldCast;
           obj.receiveShadow = true;
         }
       });
@@ -1720,6 +1774,10 @@ async function loadAllModels() {
   }
 
   dracoLoader.dispose();
+  // Bake static shadows once after all models finish loading (0 ms per-frame shadow cost)
+  if (!state.lowGraphics) {
+    renderer.shadowMap.needsUpdate = true;
+  }
   window.__MODEL_REPORT__ = state.modelReport;
   document.body.dataset.modelReport = JSON.stringify(state.modelReport);
   console.info('GLB Model Loading Report:', state.modelReport);
@@ -3265,7 +3323,10 @@ dom.btnSprint.addEventListener('click', () => {
 const clock = new THREE.Clock();
 const dummyObj = new THREE.Object3D();
 const tempVec = new THREE.Vector3();
+const camTargetVec = new THREE.Vector3();
+const camDesiredVec = new THREE.Vector3();
 let lastNetSendAt = 0;
+let lastMinimapAt = 0;
 const lastNetSent = { x: NaN, z: NaN, rotY: NaN, isMoving: false, isRunning: false };
 
 function updateLocalPlayer(dt) {
@@ -3322,19 +3383,20 @@ function updateLocalPlayer(dt) {
   self.group.position.copy(self.currentPos);
   self.group.rotation.y = self.currentRotY;
 
-  // Third-person camera follow
+  // Third-person camera follow (reuses vectors to avoid per-frame GC churn)
   const { yaw, pitch, distance } = state.cameraOrbit;
-  const lookTarget = new THREE.Vector3(
+  camTargetVec.set(
     self.currentPos.x,
     self.currentPos.y + Math.max(0.75, (self.headY || 1.45) * 0.72),
     self.currentPos.z
   );
-  const camX = lookTarget.x + Math.sin(yaw) * Math.cos(pitch) * distance;
-  const camY = Math.max(0.9, lookTarget.y + Math.sin(pitch) * distance);
-  const camZ = lookTarget.z + Math.cos(yaw) * Math.cos(pitch) * distance;
+  const camX = camTargetVec.x + Math.sin(yaw) * Math.cos(pitch) * distance;
+  const camY = Math.max(0.9, camTargetVec.y + Math.sin(pitch) * distance);
+  const camZ = camTargetVec.z + Math.cos(yaw) * Math.cos(pitch) * distance;
 
-  camera.position.lerp(new THREE.Vector3(camX, camY, camZ), Math.min(1, dt * 14));
-  camera.lookAt(lookTarget);
+  camDesiredVec.set(camX, camY, camZ);
+  camera.position.lerp(camDesiredVec, Math.min(1, dt * 14));
+  camera.lookAt(camTargetVec);
 
   // Check nearby interactive zones
   let foundZone = null;
@@ -3570,11 +3632,20 @@ function animate() {
   } else {
     updateLocalPlayer(dt);
     updatePlayersAnimationAndLabels(dt, elapsed);
-    drawMinimap();
+    const nowMs = performance.now();
+    if (nowMs - lastMinimapAt >= 100) {
+      lastMinimapAt = nowMs;
+      drawMinimap();
+    }
   }
 
   updateAtmosphere(dt, elapsed);
   renderer.render(scene, camera);
+  window.__RENDER_STATS__ = {
+    calls: renderer.info.render.calls,
+    triangles: renderer.info.render.triangles,
+    geometries: renderer.info.memory.geometries
+  };
 }
 
 // ============================================================================

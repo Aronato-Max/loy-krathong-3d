@@ -814,13 +814,9 @@ export function buildTempleGardens(scene, addCollisionBox, lowGraphics = false) 
   root.add(fireflies);
 
   // --------------------------------------------------------------------------
-  // 9. WARM GARDEN POINT LIGHTS (2 Total)
+  // 9. WARM ATMOSPHERE NOTE: Uplight decals + fairy lights + lanterns illuminate
+  //    the gardens at zero dynamic PointLight shader cost for high mobile FPS.
   // --------------------------------------------------------------------------
-  for (const l of GARDEN_LAYOUT.gardenLights) {
-    const pt = new THREE.PointLight(l.color, l.intensity, l.distance, 1.35);
-    pt.position.set(l.x, l.y, l.z);
-    root.add(pt);
-  }
 
   scene.add(root);
 
