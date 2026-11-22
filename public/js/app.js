@@ -2979,18 +2979,31 @@ function spawnReleasedLantern(lData) {
 }
 
 // ============================================================================
-// 9. SPATIAL CONCERT AUDIO (AUTO-LOOP public/audio/ PLAYLIST OR 120 BPM SYNTH)
+// 9. DUAL-ZONE SPATIAL AUDIO (ZONE 1: CONCERT STAGE | ZONE 2: FESTIVAL AMBIENT)
 // ============================================================================
+
+// Zone 1 boundary (northwest concert plaza down to Z=6.5 stalls & across main road X<=3.5)
+const CONCERT_AUDIO_ZONE = {
+  minX: -45,
+  maxX: 3.5,
+  minZ: -62,
+  maxZ: 6.5,
+  fadeWidth: 6.0
+};
 
 const audioEngine = {
   ctx: null,
   concertGain: null,
   concertPanner: null,
+  festivalGain: null,
   tracks: [],
   trackIndex: 0,
   currentTrack: null,
   usingPlaylist: false,
   mp3El: null,
+  festivalTracks: [],
+  festivalTrackIndex: 0,
+  festivalEl: null,
   synthTimer: null,
   step: 0,
   started: false
@@ -3123,6 +3136,39 @@ function applyRoomStageTrack(trackData) {
   }
 }
 
+function ensureFestivalAudioElement() {
+  if (audioEngine.festivalEl || !audioEngine.ctx || !audioEngine.festivalGain) return audioEngine.festivalEl;
+  const el = new Audio();
+  el.crossOrigin = 'anonymous';
+  el.addEventListener('ended', () => {
+    if (audioEngine.festivalTracks.length > 1) {
+      playFestivalTrack(audioEngine.festivalTrackIndex + 1);
+    }
+  });
+  const src = audioEngine.ctx.createMediaElementSource(el);
+  src.connect(audioEngine.festivalGain);
+  audioEngine.festivalEl = el;
+  return el;
+}
+
+function playFestivalTrack(index) {
+  if (audioEngine.festivalTracks.length === 0 || !audioEngine.started || !audioEngine.ctx) return;
+  const total = audioEngine.festivalTracks.length;
+  audioEngine.festivalTrackIndex = ((index % total) + total) % total;
+  const track = audioEngine.festivalTracks[audioEngine.festivalTrackIndex];
+  const el = ensureFestivalAudioElement();
+  if (!el) return;
+
+  el.loop = total === 1;
+  const fullUrl = new URL(apiUrl(track.url), window.location.origin).href;
+  if (el.src !== fullUrl) {
+    el.src = fullUrl;
+  }
+  el.play().catch((err) => {
+    console.warn('Could not play festival zone track:', track.filename, err);
+  });
+}
+
 async function initConcertAudio() {
   if (audioEngine.started) {
     if (audioEngine.ctx && audioEngine.ctx.state === 'suspended') {
@@ -3130,6 +3176,9 @@ async function initConcertAudio() {
     }
     if (audioEngine.usingPlaylist && audioEngine.mp3El && audioEngine.mp3El.paused) {
       audioEngine.mp3El.play().catch(() => {});
+    }
+    if (audioEngine.festivalEl && audioEngine.festivalEl.paused && audioEngine.festivalTracks.length > 0) {
+      audioEngine.festivalEl.play().catch(() => {});
     }
     return;
   }
@@ -3143,19 +3192,44 @@ async function initConcertAudio() {
   audioEngine.concertPanner = audioEngine.ctx.createStereoPanner();
   audioEngine.concertGain.connect(audioEngine.concertPanner);
   audioEngine.concertPanner.connect(audioEngine.ctx.destination);
+
+  audioEngine.festivalGain = audioEngine.ctx.createGain();
+  audioEngine.festivalGain.gain.value = 0.0;
+  audioEngine.festivalGain.connect(audioEngine.ctx.destination);
   audioEngine.started = true;
 
-  // Fetch all audio files placed in public/audio/ and auto-loop them continuously
+  // Fetch Zone 1 (Concert Stage) & Zone 2 (Festival Ambient) playlists in parallel
+  const fetches = [];
   if (audioEngine.tracks.length === 0) {
-    try {
-      const res = await fetch(apiUrl('/api/stage-tracks'));
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data?.tracks)) audioEngine.tracks = data.tracks;
-      }
-    } catch {}
+    fetches.push(
+      fetch(apiUrl('/api/stage-tracks'))
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (Array.isArray(data?.tracks)) audioEngine.tracks = data.tracks;
+        })
+        .catch(() => {})
+    );
+  }
+  if (audioEngine.festivalTracks.length === 0) {
+    fetches.push(
+      fetch(apiUrl('/api/festival-tracks'))
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (Array.isArray(data?.tracks)) audioEngine.festivalTracks = data.tracks;
+        })
+        .catch(() => {})
+    );
+  }
+  if (fetches.length > 0) {
+    await Promise.all(fetches);
   }
 
+  // Start Zone 2 (Festival Ambient) auto-loop if files exist in public/audio-festival/
+  if (audioEngine.festivalTracks.length > 0) {
+    playFestivalTrack(0);
+  }
+
+  // Start Zone 1 (Concert Stage) playlist or fallback 120 BPM synth
   if (audioEngine.tracks.length > 0) {
     if (audioEngine.currentTrack) {
       applyRoomStageTrack(audioEngine.currentTrack);
@@ -3165,7 +3239,6 @@ async function initConcertAudio() {
     return;
   }
 
-  // Fallback only if public/audio/ has no audio files yet
   startSynth120BPM();
 }
 
@@ -3260,22 +3333,42 @@ function startSynth120BPM() {
 
 function updateSpatialConcertAudio(playerPos) {
   if (!audioEngine.concertGain || !audioEngine.ctx) return;
+  const now = audioEngine.ctx.currentTime;
   if (!state.musicEnabled) {
-    audioEngine.concertGain.gain.setTargetAtTime(0, audioEngine.ctx.currentTime, 0.06);
+    audioEngine.concertGain.gain.setTargetAtTime(0, now, 0.06);
+    if (audioEngine.festivalGain) {
+      audioEngine.festivalGain.gain.setTargetAtTime(0, now, 0.06);
+    }
     return;
   }
-  const dist = playerPos.distanceTo(CONCERT_POS);
-  // Loud within 10m, gentle rolloff up to 52m
-  const maxDist = 52;
-  const vol = Math.max(0, 1 - Math.max(0, dist - 8) / (maxDist - 8));
-  const curvedVol = vol * vol * 0.48;
-  audioEngine.concertGain.gain.setTargetAtTime(curvedVol, audioEngine.ctx.currentTime, 0.08);
 
-  // Stereo pan relative to camera right vector
-  const toStage = CONCERT_POS.clone().sub(playerPos);
-  const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-  const pan = THREE.MathUtils.clamp(toStage.normalize().dot(camRight), -0.85, 0.85);
-  audioEngine.concertPanner.pan.setTargetAtTime(pan, audioEngine.ctx.currentTime, 0.08);
+  // Distance outside the Concert Stage Zone rectangle (0 = inside red box, >=fadeWidth = fully outside)
+  const dx = Math.max(0, CONCERT_AUDIO_ZONE.minX - playerPos.x, playerPos.x - CONCERT_AUDIO_ZONE.maxX);
+  const dz = Math.max(0, CONCERT_AUDIO_ZONE.minZ - playerPos.z, playerPos.z - CONCERT_AUDIO_ZONE.maxZ);
+  const distOutside = Math.hypot(dx, dz);
+  const t = THREE.MathUtils.clamp(distOutside / CONCERT_AUDIO_ZONE.fadeWidth, 0, 1);
+  const smoothT = t * t * (3 - 2 * t);
+
+  // Zone 1 (Concert Stage): 100% inside red box (extra punch near front of stage), fades smoothly to 0 outside
+  const concertZoneWeight = 1 - smoothT;
+  const distToStage = playerPos.distanceTo(CONCERT_POS);
+  const proximityBoost = 0.62 + 0.38 * Math.max(0, 1 - Math.max(0, distToStage - 8) / 48);
+  const concertVol = concertZoneWeight * proximityBoost * 0.50;
+  audioEngine.concertGain.gain.setTargetAtTime(concertVol, now, 0.09);
+
+  // Stereo pan relative to camera right vector when Concert Stage is audible
+  if (concertZoneWeight > 0.01) {
+    const toStage = CONCERT_POS.clone().sub(playerPos);
+    const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const pan = THREE.MathUtils.clamp(toStage.normalize().dot(camRight), -0.82, 0.82);
+    audioEngine.concertPanner.pan.setTargetAtTime(pan, now, 0.08);
+  }
+
+  // Zone 2 (Festival Ambient): 0% inside concert red box, fades smoothly to steady comfortable ambient outside
+  if (audioEngine.festivalGain) {
+    const festivalVol = audioEngine.festivalTracks.length > 0 ? smoothT * 0.24 : 0;
+    audioEngine.festivalGain.gain.setTargetAtTime(festivalVol, now, 0.1);
+  }
 }
 
 // ============================================================================
@@ -3615,6 +3708,13 @@ function connectSocketAndJoin() {
     (data.lanterns || []).forEach((l) => spawnReleasedLantern(l));
     if (Array.isArray(data.stageTracks) && data.stageTracks.length > 0) {
       audioEngine.tracks = data.stageTracks;
+    }
+    if (Array.isArray(data.festivalTracks) && data.festivalTracks.length > 0) {
+      const hadNone = audioEngine.festivalTracks.length === 0;
+      audioEngine.festivalTracks = data.festivalTracks;
+      if (hadNone && audioEngine.started && !audioEngine.festivalEl) {
+        playFestivalTrack(0);
+      }
     }
     if (data.stageTrack) {
       applyRoomStageTrack(data.stageTrack);

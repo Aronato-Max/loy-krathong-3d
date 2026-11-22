@@ -135,13 +135,14 @@ const MAX_RECENT_CHATS = 30;
 const VALID_KRATHONG_TYPES = new Set(['banana', 'lotus', 'bread']);
 const VALID_LANTERN_COLORS = new Set(['gold', 'pink', 'white']);
 const AUDIO_DIR = path.join(__dirname, 'public', 'audio');
+const FESTIVAL_AUDIO_DIR = path.join(__dirname, 'public', 'audio-festival');
 const AUDIO_EXT_RE = /\.(mp3|ogg|m4a|wav)$/i;
 
-function listStageAudioTracks() {
+function listAudioTracksInDir(dirPath, urlPrefix) {
   try {
-    if (!fs.existsSync(AUDIO_DIR)) return [];
+    if (!fs.existsSync(dirPath)) return [];
     const files = fs
-      .readdirSync(AUDIO_DIR)
+      .readdirSync(dirPath)
       .filter((name) => AUDIO_EXT_RE.test(name))
       .sort((a, b) => a.localeCompare(b, 'th'));
     return files.map((filename) => {
@@ -150,12 +151,20 @@ function listStageAudioTracks() {
         id: filename,
         filename,
         title: base || filename,
-        url: `/audio/${encodeURIComponent(filename)}`
+        url: `${urlPrefix}/${encodeURIComponent(filename)}`
       };
     });
   } catch {
     return [];
   }
+}
+
+function listStageAudioTracks() {
+  return listAudioTracksInDir(AUDIO_DIR, '/audio');
+}
+
+function listFestivalAudioTracks() {
+  return listAudioTracksInDir(FESTIVAL_AUDIO_DIR, '/audio-festival');
 }
 
 function createInitialStageTrack() {
@@ -264,6 +273,10 @@ app.get('/api/stage-tracks', (_req, res) => {
   res.json({ ok: true, tracks: listStageAudioTracks() });
 });
 
+app.get('/api/festival-tracks', (_req, res) => {
+  res.json({ ok: true, tracks: listFestivalAudioTracks() });
+});
+
 app.get('/api/rooms', (_req, res) => {
   res.json({
     ok: true,
@@ -365,6 +378,7 @@ io.on('connection', (socket) => {
 
     pruneExpiredLanterns(room);
     const stageTracks = listStageAudioTracks();
+    const festivalTracks = listFestivalAudioTracks();
     if (!room.stageTrack && stageTracks.length > 0) {
       room.stageTrack = createInitialStageTrack();
     }
@@ -378,7 +392,8 @@ io.on('connection', (socket) => {
       lanterns: room.releasedLanterns,
       recentChats: room.recentChats,
       stageTracks,
-      stageTrack: room.stageTrack
+      stageTrack: room.stageTrack,
+      festivalTracks
     });
 
     socket.to(room.id).emit('player:joined', playerState);
