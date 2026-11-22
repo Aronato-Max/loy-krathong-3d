@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=8">
+  <link rel="stylesheet" href="/css/style.css?v=9">
   <script type="importmap">
     {
       "imports": {
@@ -335,8 +335,28 @@
     </div>
   </dialog>
 
-  <script src="/config.js?v=8"></script>
+  <!-- 4e. Concert Stage Playlist Dialog (Owner Uploaded MP3 Tracks) -->
+  <dialog id="dialog-stage-playlist" class="festive-dialog" closedby="any" aria-labelledby="title-stage-playlist">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-stage-playlist">🎵 เปลี่ยนเพลงหน้าเวทีคอนเสิร์ต</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-stage-playlist" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <div class="stage-now-playing" aria-live="polite">
+        <span class="stage-np-label">กำลังเล่นเพลง</span>
+        <strong id="stage-np-title">กำลังโหลดรายการเพลง...</strong>
+        <small id="stage-np-by">เวทีคอนเสิร์ต</small>
+      </div>
+      <div class="stage-controls-row">
+        <button type="button" id="btn-stage-prev" class="btn-secondary">⏮ เพลงก่อนหน้า</button>
+        <button type="button" id="btn-stage-next" class="btn-primary">เพลงถัดไป ⏭</button>
+      </div>
+      <div id="stage-playlist-list" class="stage-track-list" role="list" aria-label="รายการเพลงหน้าเวที"></div>
+    </div>
+  </dialog>
+
+  <script src="/config.js?v=9"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=8"></script>
+  <script type="module" src="/js/app.js?v=9"></script>
 </body>
 </html>

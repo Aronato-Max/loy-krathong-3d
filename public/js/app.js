@@ -147,6 +147,14 @@ const INTERACT_ZONES = [
     dialogId: 'dialog-float-krathong'
   },
   {
+    id: 'concert-playlist',
+    x: -21,
+    z: -45.5,
+    radius: 7.5,
+    label: 'เปลี่ยนเพลงหน้าเวที 🎵',
+    dialogId: 'dialog-stage-playlist'
+  },
+  {
     id: 'lantern-plaza',
     x: LANTERN_PLAZA_CONFIG.x,
     z: LANTERN_PLAZA_CONFIG.z,
@@ -245,7 +253,14 @@ const dom = {
 
   dialogBuddha: document.getElementById('dialog-buddha'),
   buddhaBlessingText: document.getElementById('buddha-blessing-text'),
-  btnPrayAgain: document.getElementById('btn-pray-again')
+  btnPrayAgain: document.getElementById('btn-pray-again'),
+
+  dialogStagePlaylist: document.getElementById('dialog-stage-playlist'),
+  stageNpTitle: document.getElementById('stage-np-title'),
+  stageNpBy: document.getElementById('stage-np-by'),
+  btnStagePrev: document.getElementById('btn-stage-prev'),
+  btnStageNext: document.getElementById('btn-stage-next'),
+  stagePlaylistList: document.getElementById('stage-playlist-list')
 };
 
 const state = {
@@ -1730,6 +1745,19 @@ function buildSpecialZones() {
   pierGroup.add(pierSign);
 
   scene.add(pierGroup);
+
+  // 4) ป้ายจุดเปลี่ยนเพลงหน้าเวทีคอนเสิร์ต
+  const djGroup = new THREE.Group();
+  djGroup.position.set(-13.5, 0, -47.2);
+  const djPost = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.07, 2.2, 8),
+    new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.7 })
+  );
+  djPost.position.y = 1.1;
+  const djSign = createSignBoard('🎵 เปลี่ยนเพลงหน้าเวที (กด E)', 3.8, 0.9, '#312e81', '#fde047');
+  djSign.position.y = 2.35;
+  djGroup.add(djPost, djSign);
+  scene.add(djGroup);
 }
 
 // ============================================================================
@@ -2821,6 +2849,7 @@ const audioEngine = {
   concertPanner: null,
   tracks: [],
   trackIndex: 0,
+  currentTrack: null,
   usingPlaylist: false,
   mp3El: null,
   synthTimer: null,
@@ -2828,16 +2857,131 @@ const audioEngine = {
   started: false
 };
 
-function playStagePlaylistTrack(index) {
-  if (!audioEngine.mp3El || audioEngine.tracks.length === 0) return;
+function stopSynth120BPM() {
+  if (audioEngine.synthTimer) {
+    clearInterval(audioEngine.synthTimer);
+    audioEngine.synthTimer = null;
+  }
+}
+
+function renderStagePlaylistUI() {
+  const cur = audioEngine.currentTrack || audioEngine.tracks[audioEngine.trackIndex];
+  if (dom.stageNpTitle) {
+    dom.stageNpTitle.textContent = cur ? cur.title : 'ดนตรีงานวัดอัตโนมัติ (120 BPM)';
+  }
+  if (dom.stageNpBy) {
+    const posText = audioEngine.tracks.length > 0
+      ? `เพลงที่ ${audioEngine.trackIndex + 1} / ${audioEngine.tracks.length}`
+      : 'ยังไม่มีไฟล์เพลงใน public/audio/';
+    const byText = cur?.changedBy ? ` • เปิดโดย ${cur.changedBy}` : '';
+    dom.stageNpBy.textContent = `${posText}${byText}`;
+  }
+  if (!dom.stagePlaylistList) return;
+  dom.stagePlaylistList.replaceChildren();
+  audioEngine.tracks.forEach((track, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'stage-track-btn';
+    const isPlaying = cur && cur.filename === track.filename;
+    if (isPlaying) btn.classList.add('is-playing');
+
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = `${idx + 1}. ${track.title}`;
+    const badge = document.createElement('small');
+    badge.textContent = isPlaying ? '▶ กำลังเล่น' : 'เลือกเล่น';
+    btn.append(titleSpan, badge);
+
+    btn.addEventListener('click', () => {
+      if (socket) {
+        socket.emit('stage:selectTrack', { filename: track.filename }, (ack) => {
+          if (ack?.ok) {
+            showToast(`🎵 เปลี่ยนเพลงหน้าเวทีเป็น "${track.title}" แล้ว!`);
+          }
+        });
+      }
+    });
+    dom.stagePlaylistList.appendChild(btn);
+  });
+}
+
+function ensureStageAudioElement() {
+  if (audioEngine.mp3El || !audioEngine.ctx) return audioEngine.mp3El;
+  const el = new Audio();
+  el.crossOrigin = 'anonymous';
+  el.addEventListener('ended', () => {
+    if (audioEngine.tracks.length > 1) {
+      playStagePlaylistTrack(audioEngine.trackIndex + 1, null);
+    }
+  });
+  const src = audioEngine.ctx.createMediaElementSource(el);
+  src.connect(audioEngine.concertGain);
+  audioEngine.mp3El = el;
+  audioEngine.usingPlaylist = true;
+  return el;
+}
+
+function playStagePlaylistTrack(index, startedAt = null, changedBy = null) {
+  if (audioEngine.tracks.length === 0) return;
   const total = audioEngine.tracks.length;
   audioEngine.trackIndex = ((index % total) + total) % total;
   const track = audioEngine.tracks[audioEngine.trackIndex];
-  audioEngine.mp3El.loop = total === 1;
-  audioEngine.mp3El.src = apiUrl(track.url);
-  audioEngine.mp3El.play().catch((err) => {
+  audioEngine.currentTrack = {
+    ...track,
+    index: audioEngine.trackIndex,
+    changedBy: changedBy || audioEngine.currentTrack?.changedBy || 'เวทีคอนเสิร์ต',
+    startedAt: startedAt || Date.now()
+  };
+  renderStagePlaylistUI();
+
+  if (!audioEngine.started || !audioEngine.ctx) return;
+  stopSynth120BPM();
+  const el = ensureStageAudioElement();
+  if (!el) return;
+
+  el.loop = total === 1;
+  const fullUrl = new URL(apiUrl(track.url), window.location.origin).href;
+  const changingSrc = el.src !== fullUrl;
+  if (changingSrc) {
+    el.src = fullUrl;
+  }
+
+  const syncTime = () => {
+    if (!startedAt) {
+      try { el.currentTime = 0; } catch {}
+      return;
+    }
+    const dur = el.duration;
+    if (dur && Number.isFinite(dur) && dur > 1) {
+      const elapsedSec = Math.max(0, (Date.now() - startedAt) / 1000);
+      try { el.currentTime = elapsedSec % dur; } catch {}
+    }
+  };
+
+  if (el.readyState >= 1) {
+    syncTime();
+  } else {
+    el.addEventListener('loadedmetadata', syncTime, { once: true });
+  }
+
+  el.play().catch((err) => {
     console.warn('Could not play stage playlist track:', track.filename, err);
   });
+}
+
+function applyRoomStageTrack(trackData) {
+  if (!trackData || !trackData.filename) return;
+  const idx = audioEngine.tracks.findIndex((t) => t.filename === trackData.filename);
+  if (idx >= 0) {
+    playStagePlaylistTrack(idx, trackData.startedAt, trackData.changedBy);
+  } else {
+    audioEngine.tracks.push({
+      id: trackData.filename,
+      filename: trackData.filename,
+      title: trackData.title || trackData.filename,
+      url: trackData.url
+    });
+    playStagePlaylistTrack(audioEngine.tracks.length - 1, trackData.startedAt, trackData.changedBy);
+  }
 }
 
 async function initConcertAudio() {
@@ -2863,39 +3007,26 @@ async function initConcertAudio() {
   audioEngine.started = true;
 
   // Fetch all audio files placed in public/audio/ and auto-loop them continuously
-  let tracks = [];
-  try {
-    const res = await fetch(apiUrl('/api/stage-tracks'));
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data?.tracks)) tracks = data.tracks;
-    }
-  } catch {
-    tracks = [];
-  }
-
-  if (tracks.length > 0) {
+  if (audioEngine.tracks.length === 0) {
     try {
-      audioEngine.tracks = tracks;
-      const el = new Audio();
-      el.crossOrigin = 'anonymous';
-      el.addEventListener('ended', () => {
-        if (audioEngine.tracks.length > 1) {
-          playStagePlaylistTrack(audioEngine.trackIndex + 1);
-        }
-      });
-      const src = audioEngine.ctx.createMediaElementSource(el);
-      src.connect(audioEngine.concertGain);
-      audioEngine.mp3El = el;
-      audioEngine.usingPlaylist = true;
-      playStagePlaylistTrack(0);
-      return;
-    } catch (err) {
-      console.warn('Could not start stage MP3 playlist, falling back to 120 BPM synth:', err);
-    }
+      const res = await fetch(apiUrl('/api/stage-tracks'));
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.tracks)) audioEngine.tracks = data.tracks;
+      }
+    } catch {}
   }
 
-  // Fallback until owner uploads .mp3 files into public/audio/: 120 BPM Thai pentatonic synth
+  if (audioEngine.tracks.length > 0) {
+    if (audioEngine.currentTrack) {
+      applyRoomStageTrack(audioEngine.currentTrack);
+    } else {
+      playStagePlaylistTrack(0, null, 'เวทีคอนเสิร์ต');
+    }
+    return;
+  }
+
+  // Fallback only if public/audio/ has no audio files yet
   startSynth120BPM();
 }
 
@@ -3343,6 +3474,12 @@ function connectSocketAndJoin() {
     (data.players || []).forEach((p) => spawnOrUpdatePlayer(p));
     (data.krathongs || []).forEach((k) => spawnFloatedKrathong(k));
     (data.lanterns || []).forEach((l) => spawnReleasedLantern(l));
+    if (Array.isArray(data.stageTracks) && data.stageTracks.length > 0) {
+      audioEngine.tracks = data.stageTracks;
+    }
+    if (data.stageTrack) {
+      applyRoomStageTrack(data.stageTrack);
+    }
     updateOnlineCounter();
   });
 
@@ -3378,6 +3515,10 @@ function connectSocketAndJoin() {
 
   socket.on('lantern:released', (l) => {
     spawnReleasedLantern(l);
+  });
+
+  socket.on('stage:trackChanged', (trackData) => {
+    applyRoomStageTrack(trackData);
   });
 
   socket.on('chat:message', (msg) => {
@@ -3638,6 +3779,9 @@ function openZoneDialog(zone) {
     const meta = KRATHONG_META[state.heldKrathong];
     dom.floatHeldInfo.textContent = `คุณกำลังถือ ${meta.emoji} ${meta.name} พร้อมปล่อยลงสระน้ำแล้ว`;
     dom.dialogFloatKrathong.showModal();
+  } else if (zone.id === 'concert-playlist') {
+    renderStagePlaylistUI();
+    dom.dialogStagePlaylist.showModal();
   } else if (zone.id === 'lantern-plaza') {
     dom.dialogReleaseLantern.showModal();
   } else if (zone.id === 'sala-buddha') {
@@ -3721,6 +3865,20 @@ function showRandomBlessing() {
   dom.buddhaBlessingText.textContent = `"${b}"`;
 }
 dom.btnPrayAgain.addEventListener('click', showRandomBlessing);
+
+// Concert Stage Playlist Prev / Next Buttons
+if (dom.btnStagePrev) {
+  dom.btnStagePrev.addEventListener('click', () => {
+    if (!socket) return;
+    socket.emit('stage:selectTrack', { step: -1 });
+  });
+}
+if (dom.btnStageNext) {
+  dom.btnStageNext.addEventListener('click', () => {
+    if (!socket) return;
+    socket.emit('stage:selectTrack', { step: 1 });
+  });
+}
 
 // Fullscreen API helpers (Android Chrome & PC; gracefully hidden on iOS Safari where unsupported)
 function isFullscreenSupported() {

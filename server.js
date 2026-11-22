@@ -145,7 +145,7 @@ function listStageAudioTracks() {
       .filter((name) => AUDIO_EXT_RE.test(name))
       .sort((a, b) => a.localeCompare(b, 'th'));
     return files.map((filename) => {
-      const base = filename.replace(AUDIO_EXT_RE, '').replace(/[_-]+/g, ' ').trim();
+      const base = filename.replace(AUDIO_EXT_RE, '').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
       return {
         id: filename,
         filename,
@@ -156,6 +156,20 @@ function listStageAudioTracks() {
   } catch {
     return [];
   }
+}
+
+function createInitialStageTrack() {
+  const tracks = listStageAudioTracks();
+  if (tracks.length === 0) return null;
+  const t = tracks[0];
+  return {
+    index: 0,
+    filename: t.filename,
+    title: t.title,
+    url: t.url,
+    changedBy: 'เวทีคอนเสิร์ต',
+    startedAt: Date.now()
+  };
 }
 
 const ROOM_DEFS = [
@@ -174,7 +188,8 @@ for (const def of ROOM_DEFS) {
     dirtyMoves: new Map(),
     floatedKrathongs: [],
     releasedLanterns: [],
-    recentChats: []
+    recentChats: [],
+    stageTrack: createInitialStageTrack()
   });
 }
 
@@ -349,6 +364,10 @@ io.on('connection', (socket) => {
     }
 
     pruneExpiredLanterns(room);
+    const stageTracks = listStageAudioTracks();
+    if (!room.stageTrack && stageTracks.length > 0) {
+      room.stageTrack = createInitialStageTrack();
+    }
     socket.emit('world:init', {
       selfId: socket.id,
       roomId: room.id,
@@ -357,7 +376,9 @@ io.on('connection', (socket) => {
       players: Array.from(room.players.values()),
       krathongs: room.floatedKrathongs,
       lanterns: room.releasedLanterns,
-      recentChats: room.recentChats
+      recentChats: room.recentChats,
+      stageTracks,
+      stageTrack: room.stageTrack
     });
 
     socket.to(room.id).emit('player:joined', playerState);
@@ -514,6 +535,55 @@ io.on('connection', (socket) => {
 
     if (typeof ack === 'function') {
       ack({ ok: true, lantern: lanternItem });
+    }
+  });
+
+  socket.on('stage:selectTrack', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    const tracks = listStageAudioTracks();
+    if (!player || tracks.length === 0) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'NO_TRACKS' });
+      return;
+    }
+
+    let nextIndex = room.stageTrack ? room.stageTrack.index : 0;
+    if (payload && typeof payload.filename === 'string') {
+      const idx = tracks.findIndex((t) => t.filename === payload.filename);
+      if (idx < 0) {
+        if (typeof ack === 'function') ack({ ok: false, error: 'TRACK_NOT_FOUND' });
+        return;
+      }
+      nextIndex = idx;
+    } else if (payload && typeof payload.step === 'number') {
+      const delta = payload.step >= 0 ? 1 : -1;
+      nextIndex = ((nextIndex + delta) % tracks.length + tracks.length) % tracks.length;
+    } else {
+      nextIndex = (nextIndex + 1) % tracks.length;
+    }
+
+    const picked = tracks[nextIndex];
+    room.stageTrack = {
+      index: nextIndex,
+      filename: picked.filename,
+      title: picked.title,
+      url: picked.url,
+      changedBy: player.nickname,
+      startedAt: Date.now()
+    };
+
+    io.to(room.id).emit('stage:trackChanged', room.stageTrack);
+    pushChat(room, {
+      id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      senderId: 'system',
+      senderName: 'เวทีคอนเสิร์ต',
+      text: `${player.nickname} เปลี่ยนเพลงหน้าเวทีเป็น "${picked.title}" 🎵`,
+      type: 'system',
+      timestamp: Date.now()
+    });
+
+    if (typeof ack === 'function') {
+      ack({ ok: true, stageTrack: room.stageTrack });
     }
   });
 

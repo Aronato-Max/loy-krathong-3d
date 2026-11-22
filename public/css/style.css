@@ -1669,3 +1669,90 @@ body.low-gfx .chat-panel {
     grid-template-columns: 1fr;
   }
 }
+
+/* Concert Stage Playlist Dialog */
+.stage-now-playing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(246, 196, 83, 0.16), rgba(45, 212, 191, 0.12));
+  border: 1px solid rgba(246, 196, 83, 0.45);
+}
+
+.stage-np-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+.stage-now-playing strong {
+  font-size: 0.96rem;
+  color: var(--gold);
+  overflow-wrap: break-word;
+}
+
+.stage-now-playing small {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.stage-controls-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.stage-track-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-block-size: 240px;
+  overflow-y: auto;
+}
+
+.stage-track-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-block-size: 42px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.85);
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease-out, background-color 140ms ease-out, scale 120ms ease-out;
+}
+
+.stage-track-btn:hover {
+  border-color: var(--gold);
+  background: rgba(30, 41, 59, 0.96);
+}
+
+.stage-track-btn:active {
+  scale: 0.98;
+}
+
+.stage-track-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.stage-track-btn.is-playing {
+  border-color: var(--gold);
+  background: rgba(246, 196, 83, 0.2);
+  color: var(--gold);
+}
+
+.stage-track-btn small {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--teal);
+}
