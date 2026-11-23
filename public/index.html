@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=16">
+  <link rel="stylesheet" href="/css/style.css?v=23">
   <script type="importmap">
     {
       "imports": {
@@ -116,7 +116,7 @@
           </div>
 
           <div class="form-group">
-            <label for="select-room">เลือกลานงาน (ห้องละไม่เกิน 35 คน เพื่อความลื่นไหล)</label>
+            <label for="select-room">เลือกลานงาน (ห้องละไม่เกิน 50 คน เพื่อความลื่นไหล)</label>
             <select id="select-room" name="roomId" class="room-select">
               <option value="auto" selected>✨ เข้าห้องว่างอัตโนมัติ (แนะนำ)</option>
               <option value="room-1">🏮 ลานงาน 1</option>
@@ -156,6 +156,8 @@
         <span id="hud-room-name">ลานงาน 1</span>
         <span class="divider">•</span>
         <span id="hud-online-count">ออนไลน์ 1 คน</span>
+        <span class="divider">•</span>
+        <span id="hud-coins" class="hud-coins-badge" title="เหรียญงานวัด (ลงว่ายน้ำเก็บในสระได้!)">💰 20</span>
       </div>
       <div class="hud-pill krathong-status-pill is-empty" id="hud-held-krathong">
         <span>🪷 ยังไม่ได้ถือกระทง</span>
@@ -169,6 +171,9 @@
         </button>
         <button type="button" id="btn-mic-setup" class="hud-btn" aria-label="ตั้งค่าไมโครโฟน" title="สถานะไมโครโฟน">
           <span aria-hidden="true">🎤</span> <span id="mic-state-text" class="btn-label">ไมค์: พร้อม</span>
+        </button>
+        <button type="button" id="btn-leaderboard" class="hud-btn hud-btn-gold" aria-label="ป้ายอันดับขวัญใจงานวัด" title="ป้ายอันดับขวัญใจงานวัด (Top 3 ❤️ / 💰)">
+          <span aria-hidden="true">👑</span> <span class="btn-label">อันดับ</span>
         </button>
       </div>
     </div>
@@ -226,7 +231,7 @@
         <span><b>Scroll</b> ซูม</span>
         <span><b>E</b> โต้ตอบ</span>
         <span><b>F</b> กิน/ดื่ม</span>
-        <span><b>H</b> โบกมือ</span>
+        <span><b>H / 1–4</b> ท่าเต้น</span>
         <span><b>V</b> กดค้างพูด</span>
       </div>
 
@@ -239,8 +244,14 @@
       </div>
     </div>
 
-    <!-- Bottom-Right: Right-Edge Actions (Sprint, Wave, PTT) + Collapsible Chat -->
+    <!-- Bottom-Right: Right-Edge Actions (Emote Drawer, Sprint, Wave, Dance, PTT) + Collapsible Chat -->
     <div id="hud-bottom-right" class="hud-bottom-right">
+      <div id="emote-drawer" class="emote-drawer hidden" role="group" aria-label="เลือกท่าเต้นและอีโมต">
+        <button type="button" class="emote-pill" data-emote="wave">👋 โบกมือ <em>1</em></button>
+        <button type="button" class="emote-pill" data-emote="ramwong">💃 รำวง <em>2</em></button>
+        <button type="button" class="emote-pill" data-emote="cheer">🕺 โยกเชียร์ <em>3</em></button>
+        <button type="button" class="emote-pill" data-emote="wai">🙏 ไหว้สวย <em>4</em></button>
+      </div>
       <div class="voice-action-row">
         <button type="button" id="btn-eat" class="eat-btn hidden" aria-label="กินของกินหรือดื่มน้ำในมือ" title="กิน/ดื่มของในมือ (F)">
           <span id="eat-icon" aria-hidden="true">😋</span>
@@ -250,6 +261,10 @@
         <button type="button" id="btn-sprint" class="sprint-btn" aria-pressed="false" aria-label="เปิดหรือปิดวิ่งเร็ว" title="วิ่งเร็ว">
           <span aria-hidden="true">🏃</span>
           <span class="sprint-text">วิ่ง</span>
+        </button>
+        <button type="button" id="btn-emote-toggle" class="wave-btn emote-toggle-btn" aria-expanded="false" aria-label="เปิดเมนูท่าเต้นและอีโมต 4 ท่า" title="ท่าเต้น & อีโมต (กด 1–4)">
+          <span aria-hidden="true">💃</span>
+          <span class="wave-text">ท่าเต้น</span>
         </button>
         <button type="button" id="btn-wave" class="wave-btn" aria-label="โบกมือทักทายเพื่อน" title="โบกมือทักทายเพื่อน (H)">
           <span aria-hidden="true">👋</span>
@@ -355,7 +370,7 @@
         </div>
         <div class="dialog-actions">
           <button type="button" class="btn-secondary" data-close-dialog="dialog-release-lantern">ยกเลิก</button>
-          <button type="submit" class="btn-primary">ปล่อยโคมลอยขึ้นฟ้า 🏮</button>
+          <button type="submit" class="btn-primary">ปล่อยโคมลอยขึ้นฟ้า 🏮 (5 💰)</button>
         </div>
       </form>
     </div>
@@ -375,7 +390,58 @@
       </div>
       <div class="dialog-actions">
         <button type="button" id="btn-pray-again" class="btn-secondary" autofocus>รับพรเพิ่มเติม 🙏</button>
+        <button type="button" id="btn-open-esiimsi-from-buddha" class="btn-secondary">🎋 เสี่ยงเซียมซี</button>
         <button type="button" class="btn-primary" data-close-dialog="dialog-buddha">สาธุ ปิดหน้าต่าง</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 4d-2. Esiimsi Fortune Sticks Dialog (ศาลาพระพุทธรูป) -->
+  <dialog id="dialog-esiimsi" class="festive-dialog esiimsi-dialog" closedby="any" aria-labelledby="title-esiimsi">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-esiimsi">🎋 เสี่ยงเซียมซี วัดทุ่งท่าช้าง</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-esiimsi" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <p class="dialog-desc">ตั้งจิตอธิษฐานหน้าองค์พระพุทธรูป แล้วกดปุ่มเขย่ากระบอกเซียมซีเพื่อรับคำทำนาย (ใบที่ 1–28)</p>
+
+      <div class="esiimsi-stage">
+        <div id="esiimsi-cup" class="esiimsi-cup" aria-hidden="true">
+          <div class="esiimsi-sticks-bundle">
+            <span class="e-stick s1"></span>
+            <span class="e-stick s2"></span>
+            <span class="e-stick s3"></span>
+            <span class="e-stick s4"></span>
+            <span class="e-stick s5"></span>
+            <span id="esiimsi-pop-stick" class="e-stick e-pop-stick hidden"><b id="esiimsi-pop-num">9</b></span>
+          </div>
+          <div class="esiimsi-cylinder">
+            <span class="esiimsi-cup-gold">เซียมซี</span>
+          </div>
+        </div>
+        <button type="button" id="btn-shake-esiimsi" class="btn-primary btn-large esiimsi-shake-btn" autofocus>
+          🎋 เขย่ากระบอกเซียมซี
+        </button>
+      </div>
+
+      <div id="esiimsi-slip-card" class="esiimsi-slip-card hidden" aria-live="polite">
+        <div class="esiimsi-slip-head">
+          <strong id="esiimsi-slip-title">ใบเซียมซี ใบที่ 1</strong>
+          <span id="esiimsi-tier-badge" class="esiimsi-tier-badge tier-great">🌟 ดีมาก</span>
+        </div>
+        <p id="esiimsi-verse" class="esiimsi-verse"></p>
+        <div class="esiimsi-grid">
+          <div><b>💼 การงาน:</b> <span id="esiimsi-work"></span></div>
+          <div><b>💰 การเงิน:</b> <span id="esiimsi-finance"></span></div>
+          <div><b>💖 ความรัก:</b> <span id="esiimsi-love"></span></div>
+          <div><b>🌿 สุขภาพ:</b> <span id="esiimsi-health"></span></div>
+        </div>
+        <div class="esiimsi-lucky">🍀 เลขนำโชค: <strong id="esiimsi-lucky-num">19, 91</strong></div>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" id="btn-share-esiimsi" class="btn-secondary hidden">📢 แชร์ผลลงแชตงานวัด</button>
+        <button type="button" class="btn-secondary" data-close-dialog="dialog-esiimsi">ปิดหน้าต่าง</button>
       </div>
     </div>
   </dialog>
@@ -397,6 +463,127 @@
         <button type="button" id="btn-stage-next" class="btn-primary">เพลงถัดไป ⏭</button>
       </div>
       <div id="stage-playlist-list" class="stage-track-list" role="list" aria-label="รายการเพลงหน้าเวที"></div>
+    </div>
+  </dialog>
+
+  <!-- 4e-2. Fireworks Launch Dialog (4 Styles, Real-Time Multiplayer) -->
+  <dialog id="dialog-fireworks" class="festive-dialog" closedby="any" aria-labelledby="title-fireworks">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-fireworks">🎆 ลานจุดพลุเฉลิมฉลอง วัดทุ่งท่าช้าง</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-fireworks" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <p class="dialog-desc">เลือกสไตล์พลุที่ชอบ พลุจะพุ่งขึ้นท้องฟ้าให้เพื่อนทุกคนในงานเห็นและได้ยินพร้อมกันแบบ Real-time!</p>
+      <div class="fireworks-choices">
+        <button type="button" class="choice-card fw-card" data-firework-style="gold" autofocus>
+          <span class="choice-emoji">🌕</span>
+          <strong>พลุทองมงคล • 10 💰</strong>
+          <small>ประกายทองวิลโลว์สว่างไสวหรูหรา</small>
+        </button>
+        <button type="button" class="choice-card fw-card" data-firework-style="rainbow">
+          <span class="choice-emoji">🌈</span>
+          <strong>พลุสายรุ้ง • 10 💰</strong>
+          <small>แตกกระจายหลากสีสัน 2 นัดซ้อน</small>
+        </button>
+        <button type="button" class="choice-card fw-card" data-firework-style="heart">
+          <span class="choice-emoji">💖</span>
+          <strong>พลุสีชมพู-หัวใจ • 10 💰</strong>
+          <small>พลุรูปหัวใจสีชมพูหวานกลางท้องฟ้า</small>
+        </button>
+        <button type="button" class="choice-card fw-card fw-card-grand" data-firework-style="finale">
+          <span class="choice-emoji">🎆</span>
+          <strong>พลุชุดใหญ่ 5 นัด • 15 💰</strong>
+          <small>ยิงชุดใหญ่ต่อเนื่องเต็มท้องฟ้า!</small>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 4g. Friend Social Popup (Send Heart + Gift Coins) -->
+  <dialog id="dialog-player-social" class="festive-dialog social-dialog" closedby="any" aria-labelledby="title-player-social">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-player-social">🤝 ทักทายเพื่อนในงานวัด</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-player-social" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <div class="social-friend-hero">
+        <div id="social-friend-name" class="social-friend-name">เพื่อนร่วมงาน</div>
+        <div id="social-friend-hearts" class="social-friend-hearts">❤️ 0 หัวใจ</div>
+      </div>
+
+      <button type="button" id="btn-social-heart" class="btn-heart-send">
+        <span>❤️ ส่งหัวใจให้เพื่อน (ฟรี)</span>
+      </button>
+
+      <div class="social-coin-section">
+        <div class="social-coin-head">
+          <span>💰 มอบเหรียญให้เพื่อน</span>
+          <span id="social-my-coins" class="social-my-coins">คงเหลือ: 💰 20 เหรียญ</span>
+        </div>
+        <div class="social-coin-presets">
+          <button type="button" class="coin-preset-btn" data-gift-coins="5">+5 💰</button>
+          <button type="button" class="coin-preset-btn" data-gift-coins="10">+10 💰</button>
+          <button type="button" class="coin-preset-btn" data-gift-coins="20">+20 💰</button>
+        </div>
+        <form id="social-gift-form" class="social-gift-form">
+          <input type="number" id="input-gift-coins" min="1" max="999" step="1" placeholder="ระบุจำนวนเหรียญเอง..." inputmode="numeric">
+          <button type="submit" class="btn-primary social-gift-submit">🎁 ส่งเหรียญ</button>
+        </form>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 4h. Balloon Dart Mini-Game Dialog (5 coins / round -> pop 7 in 15s -> +15 coins & Teddy Bear!) -->
+  <dialog id="dialog-balloon-game" class="festive-dialog fairgame-dialog" closedby="any" aria-labelledby="title-balloon-game">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-balloon-game">🎈 มินิเกมปาโป่งงานวัด</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-balloon-game" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <p class="dialog-desc">ค่าเล่น <strong>5 💰</strong> ต่อรอบ — ปาลูกโป่งให้แตกครบ <strong>7 ลูก</strong> ภายใน 15 วินาที รับทันที <strong>+15 💰</strong> และ <strong>🧸 ตุ๊กตาหมีงานวัด</strong>!</p>
+      <div class="balloon-hud-bar">
+        <span id="balloon-score">🎈 แตกแล้ว: 0 / 7</span>
+        <span id="balloon-timer">⏱️ 15.0 วิ</span>
+      </div>
+      <div id="balloon-board" class="balloon-board" aria-label="กระดานปาโป่ง">
+        <div id="balloon-board-overlay" class="balloon-board-overlay">
+          <p id="balloon-result-text">พร้อมล่ารางวัลตุ๊กตาหมีแล้วหรือยัง? 🎯</p>
+          <button type="button" id="btn-balloon-start" class="btn-primary">🎯 เริ่มปาโป่ง (5 💰)</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 4j. Krathong Contest Live Voting Dialog -->
+  <dialog id="dialog-contest-vote" class="festive-dialog fairgame-dialog" closedby="any" aria-labelledby="title-contest-vote">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-contest-vote">🪷 โหวตประกวดกระทงสวยประจำงาน</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-contest-vote" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <p class="dialog-desc">ร่วมโหวตให้กระทงที่สวยถูกใจที่สุดบนพรมแดง! คะแนนอัปเดตสดทั้งห้องแบบเรียลไทม์ (<span id="contest-total-votes">รวม 0 โหวต</span>)</p>
+      <div id="contest-entries-list" class="contest-entries-list"></div>
+    </div>
+  </dialog>
+
+  <!-- 4k. Live Room Leaderboard Dialog (Top 3 Hearts & Top 3 Coins) -->
+  <dialog id="dialog-leaderboard" class="festive-dialog fairgame-dialog" closedby="any" aria-labelledby="title-leaderboard">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-leaderboard">👑 ป้ายอันดับขวัญใจงานวัด</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-leaderboard" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+      <div class="leaderboard-grid">
+        <section class="lb-card">
+          <h3>❤️ ขวัญใจงานวัด (Top 3)</h3>
+          <ol id="lb-hearts-list" class="lb-list"></ol>
+        </section>
+        <section class="lb-card">
+          <h3>💰 เศรษฐีงานวัด (Top 3)</h3>
+          <ol id="lb-coins-list" class="lb-list"></ol>
+        </section>
+      </div>
+      <p class="lb-tip">💡 คลิกที่เพื่อนเพื่อส่งหัวใจ ❤️ หรือลงว่ายน้ำเก็บเหรียญในสระลอยกระทงเพื่อไต่อันดับ!</p>
     </div>
   </dialog>
 
@@ -441,11 +628,51 @@
     </div>
   </dialog>
 
+  <!-- 5. Haunted Forest Horror Vignette, Jumpscare Overlay & Ubosot Holy Shield Flash -->
+  <div id="horror-vignette" class="horror-vignette hidden" aria-hidden="true"></div>
+  <div id="holy-shield-flash" class="holy-shield-flash hidden" aria-hidden="true"></div>
+  <div id="ghost-jumpscare" class="ghost-jumpscare hidden" aria-hidden="true">
+    <svg viewBox="0 0 360 360" class="ghost-scare-svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="gFace" cx="50%" cy="46%" r="48%">
+          <stop offset="0%" stop-color="#e2ece6"/>
+          <stop offset="68%" stop-color="#8fa399"/>
+          <stop offset="100%" stop-color="#141e1a"/>
+        </radialGradient>
+        <radialGradient id="gEyeGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="35%" stop-color="#ff1a1a"/>
+          <stop offset="100%" stop-color="#7f0000" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="360" height="360" fill="#030504"/>
+      <!-- Streaming tangled black hair backdrop -->
+      <path d="M55,360 Q40,180 75,75 Q180,-10 285,75 Q320,180 305,360 Z" fill="#050507"/>
+      <!-- Gaunt pale spectral face -->
+      <ellipse cx="180" cy="175" rx="92" ry="122" fill="url(#gFace)"/>
+      <!-- Dark hollow sunken eye sockets -->
+      <ellipse cx="136" cy="156" rx="28" ry="22" fill="#060204"/>
+      <ellipse cx="224" cy="156" rx="28" ry="22" fill="#060204"/>
+      <!-- Piercing glowing crimson eyes -->
+      <circle cx="136" cy="156" r="14" fill="url(#gEyeGlow)"/>
+      <circle cx="224" cy="156" r="14" fill="url(#gEyeGlow)"/>
+      <circle cx="136" cy="156" r="4" fill="#fff"/>
+      <circle cx="224" cy="156" r="4" fill="#fff"/>
+      <!-- Screaming gaping dark mouth -->
+      <path d="M138,225 Q180,192 222,225 Q214,296 180,298 Q146,296 138,225 Z" fill="#080104"/>
+      <!-- Hair strands hanging over face -->
+      <path d="M98,68 Q112,170 92,315" stroke="#050507" stroke-width="18" fill="none"/>
+      <path d="M262,68 Q248,170 268,315" stroke="#050507" stroke-width="18" fill="none"/>
+      <path d="M150,56 Q160,125 142,195" stroke="#050507" stroke-width="10" fill="none"/>
+      <path d="M210,56 Q202,120 218,185" stroke="#050507" stroke-width="10" fill="none"/>
+    </svg>
+  </div>
+
   <!-- Hidden DOM container for mobile-safe HTMLAudioElement playback (music + WebRTC voice) -->
   <div id="audio-elements-sink" class="sr-audio-sink" aria-hidden="true"></div>
 
-  <script src="/config.js?v=16"></script>
+  <script src="/config.js?v=23"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=16"></script>
+  <script type="module" src="/js/app.js?v=23"></script>
 </body>
 </html>

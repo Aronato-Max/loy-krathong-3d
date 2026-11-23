@@ -42,6 +42,45 @@ import {
   findNearestVendorStall,
   updateVendorMarket
 } from './vendor-market.js';
+import {
+  ESIIMSI_CONFIG,
+  UBOSOT_BOUNDS,
+  SALA_BOUNDS,
+  ESIIMSI_FORTUNES,
+  buildEsiimsiStand
+} from './sacred-zones.js';
+import {
+  FIREWORKS_CONFIG,
+  FIREWORK_STYLES,
+  buildFireworksStation,
+  launchFireworkShow,
+  updateFireworks,
+  drawFireworksMinimap
+} from './fireworks.js';
+import {
+  PIER_BOUNDS,
+  isOnWoodenPier,
+  isInSwimmingPond,
+  buildPondCoinSystem,
+  spawnPondCoin,
+  removePondCoin,
+  syncPondCoins,
+  playCoinCollectSound,
+  updatePondCoins
+} from './pond-coins.js';
+import {
+  buildHauntedForest,
+  updateHauntedForest
+} from './haunted-forest.js';
+import {
+  BALLOON_BOOTH_CONFIG,
+  CONTEST_ENTRIES,
+  buildFairGames,
+  updateFairGames,
+  createHeadAccessoryMesh,
+  playDartPopSound,
+  playStarWinSound
+} from './fair-games.js';
 
 // Backend API/Socket origin (empty = same origin; set via /config.js when hosting public/ on Cloudflare Pages)
 const SERVER_URL = (window.LOY_KRATHONG_CONFIG?.serverUrl || '').replace(/\/+$/, '');
@@ -182,25 +221,57 @@ const INTERACT_ZONES = [
     dialogId: 'dialog-stage-playlist'
   },
   {
+    id: 'fireworks-station',
+    x: FIREWORKS_CONFIG.x,
+    z: FIREWORKS_CONFIG.z + 1.2,
+    radius: FIREWORKS_CONFIG.interactRadius,
+    label: 'จุดพลุเฉลิมฉลอง (10–15 💰) 🎆',
+    dialogId: 'dialog-fireworks'
+  },
+  {
     id: 'lantern-plaza',
     x: LANTERN_PLAZA_CONFIG.x,
     z: LANTERN_PLAZA_CONFIG.z,
     radius: LANTERN_PLAZA_CONFIG.interactRadius,
-    label: 'ปล่อยโคมลอยอธิษฐาน 🏮',
+    label: 'ปล่อยโคมลอยอธิษฐาน (5 💰) 🏮',
     dialogId: 'dialog-release-lantern'
   },
   {
+    id: 'esiimsi-stand',
+    x: ESIIMSI_CONFIG.x,
+    z: ESIIMSI_CONFIG.z,
+    radius: ESIIMSI_CONFIG.interactRadius,
+    label: 'เสี่ยงเซียมซี (เขย่าใบทำนาย) 🎋',
+    dialogId: 'dialog-esiimsi'
+  },
+  {
     id: 'sala-buddha',
-    x: 30.8,
-    z: 13,
-    radius: 6.0,
-    label: 'กราบไหว้พระรับคำอวยพร',
+    x: 31.8,
+    z: 13.4,
+    radius: 3.6,
+    label: 'กราบไหว้พระรับคำอวยพร 🙏',
     dialogId: 'dialog-buddha'
+  },
+  {
+    id: 'balloon-dart',
+    x: BALLOON_BOOTH_CONFIG.interactX,
+    z: BALLOON_BOOTH_CONFIG.interactZ,
+    radius: BALLOON_BOOTH_CONFIG.interactRadius,
+    label: 'เล่นปาโป่งชิงตุ๊กตาหมี (5 💰) 🎈',
+    dialogId: 'dialog-balloon-game'
+  },
+  {
+    id: 'krathong-contest',
+    x: 15,
+    z: 9.5,
+    radius: 5.2,
+    label: 'โหวตประกวดกระทงสวยประจำงาน 🪷',
+    dialogId: 'dialog-contest-vote'
   }
 ];
 
 const CONCERT_POS = new THREE.Vector3(-21, 2, -52.5);
-const WORLD_BOUNDS = { minX: -41.2, maxX: 56.2, minZ: -57.8, maxZ: 59.9 };
+const WORLD_BOUNDS = { minX: -41.2, maxX: 56.2, minZ: -58.05, maxZ: 59.9 };
 
 // ============================================================================
 // 2. DOM REFERENCES & APPLICATION STATE
@@ -233,6 +304,7 @@ const dom = {
   hudNickname: document.getElementById('hud-nickname'),
   hudRoomName: document.getElementById('hud-room-name'),
   hudOnlineCount: document.getElementById('hud-online-count'),
+  hudCoins: document.getElementById('hud-coins'),
   hudHeldKrathong: document.getElementById('hud-held-krathong'),
   btnMusicToggle: document.getElementById('btn-music-toggle'),
   btnGfxToggle: document.getElementById('btn-gfx-toggle'),
@@ -290,6 +362,23 @@ const dom = {
   dialogBuddha: document.getElementById('dialog-buddha'),
   buddhaBlessingText: document.getElementById('buddha-blessing-text'),
   btnPrayAgain: document.getElementById('btn-pray-again'),
+  btnOpenEsiimsiFromBuddha: document.getElementById('btn-open-esiimsi-from-buddha'),
+
+  dialogEsiimsi: document.getElementById('dialog-esiimsi'),
+  esiimsiCup: document.getElementById('esiimsi-cup'),
+  esiimsiPopStick: document.getElementById('esiimsi-pop-stick'),
+  esiimsiPopNum: document.getElementById('esiimsi-pop-num'),
+  btnShakeEsiimsi: document.getElementById('btn-shake-esiimsi'),
+  esiimsiSlipCard: document.getElementById('esiimsi-slip-card'),
+  esiimsiSlipTitle: document.getElementById('esiimsi-slip-title'),
+  esiimsiTierBadge: document.getElementById('esiimsi-tier-badge'),
+  esiimsiVerse: document.getElementById('esiimsi-verse'),
+  esiimsiWork: document.getElementById('esiimsi-work'),
+  esiimsiFinance: document.getElementById('esiimsi-finance'),
+  esiimsiLove: document.getElementById('esiimsi-love'),
+  esiimsiHealth: document.getElementById('esiimsi-health'),
+  esiimsiLuckyNum: document.getElementById('esiimsi-lucky-num'),
+  btnShareEsiimsi: document.getElementById('btn-share-esiimsi'),
 
   dialogStagePlaylist: document.getElementById('dialog-stage-playlist'),
   stageNpTitle: document.getElementById('stage-np-title'),
@@ -297,6 +386,7 @@ const dom = {
   btnStagePrev: document.getElementById('btn-stage-prev'),
   btnStageNext: document.getElementById('btn-stage-next'),
   stagePlaylistList: document.getElementById('stage-playlist-list'),
+  dialogFireworks: document.getElementById('dialog-fireworks'),
   audioSink: document.getElementById('audio-elements-sink'),
   btnAudioUnlock: document.getElementById('btn-audio-unlock'),
 
@@ -313,7 +403,33 @@ const dom = {
   photoPreviewImg: document.getElementById('photo-preview-img'),
   btnPhotoRetake: document.getElementById('btn-photo-retake'),
   btnPhotoShare: document.getElementById('btn-photo-share'),
-  btnPhotoDownload: document.getElementById('btn-photo-download')
+  btnPhotoDownload: document.getElementById('btn-photo-download'),
+  horrorVignette: document.getElementById('horror-vignette'),
+  holyShieldFlash: document.getElementById('holy-shield-flash'),
+  ghostJumpscare: document.getElementById('ghost-jumpscare'),
+  dialogPlayerSocial: document.getElementById('dialog-player-social'),
+  socialFriendName: document.getElementById('social-friend-name'),
+  socialFriendHearts: document.getElementById('social-friend-hearts'),
+  btnSocialHeart: document.getElementById('btn-social-heart'),
+  socialMyCoins: document.getElementById('social-my-coins'),
+  socialGiftForm: document.getElementById('social-gift-form'),
+  inputGiftCoins: document.getElementById('input-gift-coins'),
+  btnLeaderboard: document.getElementById('btn-leaderboard'),
+  emoteDrawer: document.getElementById('emote-drawer'),
+  btnEmoteToggle: document.getElementById('btn-emote-toggle'),
+  dialogBalloonGame: document.getElementById('dialog-balloon-game'),
+  balloonScore: document.getElementById('balloon-score'),
+  balloonTimer: document.getElementById('balloon-timer'),
+  balloonBoard: document.getElementById('balloon-board'),
+  balloonBoardOverlay: document.getElementById('balloon-board-overlay'),
+  balloonResultText: document.getElementById('balloon-result-text'),
+  btnBalloonStart: document.getElementById('btn-balloon-start'),
+  dialogContestVote: document.getElementById('dialog-contest-vote'),
+  contestTotalVotes: document.getElementById('contest-total-votes'),
+  contestEntriesList: document.getElementById('contest-entries-list'),
+  dialogLeaderboard: document.getElementById('dialog-leaderboard'),
+  lbHeartsList: document.getElementById('lb-hearts-list'),
+  lbCoinsList: document.getElementById('lb-coins-list')
 };
 
 const state = {
@@ -322,9 +438,16 @@ const state = {
   selfId: null,
   roomId: 'room-1',
   roomName: 'ลานงาน 1',
-  roomMax: 35,
+  roomMax: 50,
   selectedRoomId: 'auto',
   nickname: 'ผู้ร่วมงาน',
+  coins: 20,
+  fireworkViewUntil: 0,
+  socialTargetId: null,
+  activeEmote: null,
+  headAccessory: null,
+  contestVotes: { counts: { banana: 0, lotus: 0, bread: 0 }, total: 0 },
+  myContestVote: null,
   avatarConfig: {
     avatarId: 'Avatar_BoyCargo'
   },
@@ -385,6 +508,10 @@ let frontRoadState = null;
 let photoBoothState = null;
 let vendorMarketState = null;
 let concertChairsState = null;
+let fireworksState = null;
+let pondCoinsState = null;
+let hauntedForestState = null;
+let fairGamesState = null;
 const lambertMatCache = new WeakMap();
 
 function toFastLambertMaterial(stdMat) {
@@ -485,11 +612,18 @@ function updateMobileZoneCulling() {
   if (frontRoadState) {
     frontRoadState.root.visible = camZ > (low ? 20 : 8);
   }
-  if (low) {
-    for (let i = 0; i < perfLodRefs.cullableBuildings.length; i++) {
-      const b = perfLodRefs.cullableBuildings[i];
-      b.root.visible = camera.position.distanceTo(b.pos) <= b.maxDist;
-    }
+  if (fairGamesState) {
+    fairGamesState.root.visible = camZ > (low ? -6 : -22);
+  }
+  if (fireworksState) {
+    // Keep fireworks rack visible when near north half, OR whenever rockets/bursts are actively flying!
+    fireworksState.root.visible =
+      camZ < (low ? 6 : 26) || fireworksState.rockets.length > 0 || fireworksState.bursts.length > 0;
+  }
+  const bldgDistScale = low ? 1.0 : 1.42;
+  for (let i = 0; i < perfLodRefs.cullableBuildings.length; i++) {
+    const b = perfLodRefs.cullableBuildings[i];
+    b.root.visible = camera.position.distanceTo(b.pos) <= b.maxDist * bldgDistScale;
   }
 }
 
@@ -606,10 +740,8 @@ function addRotatedCollisionBox(cx, cz, width, depth, rotY, tag = '') {
     cz,
     halfW: width * 0.5,
     halfD: depth * 0.5,
-    cos: Math.cos(-rotY),
-    sin: Math.sin(-rotY),
-    invCos: Math.cos(rotY),
-    invSin: Math.sin(rotY),
+    cos: Math.cos(rotY),
+    sin: Math.sin(rotY),
     tag
   });
 }
@@ -648,6 +780,7 @@ function resolvePlayerCollisions(pos, radius = 0.48) {
     }
 
     for (const obb of rotatedBoxes) {
+      // Exact Three.js rotation.y inverse: world offset -> box local coords
       const relX = pos.x - obb.cx;
       const relZ = pos.z - obb.cz;
       const localX = relX * obb.cos - relZ * obb.sin;
@@ -659,14 +792,61 @@ function resolvePlayerCollisions(pos, radius = 0.48) {
       const dz = localZ - clampedZ;
       const distSq = dx * dx + dz * dz;
 
-      if (distSq < radius * radius && distSq > 1e-6) {
-        const dist = Math.sqrt(distSq);
-        const push = radius - dist;
-        const pushLX = (dx / dist) * push;
-        const pushLZ = (dz / dist) * push;
-        pos.x += pushLX * obb.invCos - pushLZ * obb.invSin;
-        pos.z += pushLX * obb.invSin + pushLZ * obb.invCos;
+      if (distSq < radius * radius) {
+        let pushLX = 0;
+        let pushLZ = 0;
+        if (distSq > 1e-6) {
+          const dist = Math.sqrt(distSq);
+          const push = radius - dist;
+          pushLX = (dx / dist) * push;
+          pushLZ = (dz / dist) * push;
+        } else {
+          // Center inside OBB: push out to nearest local face
+          const dLeft = Math.abs(localX + obb.halfW);
+          const dRight = Math.abs(obb.halfW - localX);
+          const dBack = Math.abs(localZ + obb.halfD);
+          const dFront = Math.abs(obb.halfD - localZ);
+          const m = Math.min(dLeft, dRight, dBack, dFront);
+          if (m === dLeft) pushLX = -(obb.halfW + radius) - localX;
+          else if (m === dRight) pushLX = obb.halfW + radius - localX;
+          else if (m === dBack) pushLZ = -(obb.halfD + radius) - localZ;
+          else pushLZ = obb.halfD + radius - localZ;
+        }
+        // Transform local push back to world space via Three.js rotation.y
+        pos.x += pushLX * obb.cos + pushLZ * obb.sin;
+        pos.z += -pushLX * obb.sin + pushLZ * obb.cos;
       }
+    }
+  }
+  // Height-aware Concert Stage deck & back-left 5-step staircase (-21, 0, -52.5)
+  // Stage deck: X -27.0..-15.0, Z -55.8..-49.2 (height Y = 1.35m)
+  // Back-left stairs: X -26.35..-25.25, Z -57.25..-55.80 (ramps smoothly Y: 0 -> 1.35m!)
+  const inStairOpeningX = pos.x >= -26.55 && pos.x <= -25.05;
+  if (pos.y < 0.72) {
+    // On ground level: block walking under the stage deck, EXCEPT keep the back-left stair entry open!
+    if (!(inStairOpeningX && pos.z <= -55.1)) {
+      const closestX = Math.max(-27.0, Math.min(pos.x, -15.0));
+      const closestZ = Math.max(-55.8, Math.min(pos.z, -49.2));
+      const dx = pos.x - closestX;
+      const dz = pos.z - closestZ;
+      const distSq = dx * dx + dz * dz;
+      if (distSq < radius * radius) {
+        if (distSq > 1e-6) {
+          const dist = Math.sqrt(distSq);
+          const push = radius - dist;
+          pos.x += (dx / dist) * push;
+          pos.z += (dz / dist) * push;
+        } else {
+          pos.z = -49.2 + radius;
+        }
+      }
+    }
+  } else if (pos.x >= -27.3 && pos.x <= -14.7 && pos.z >= -57.4 && pos.z <= -48.9) {
+    // On top of the stage deck / upper stairs: keep safely inside stage edges except back-left stair exit!
+    pos.x = Math.max(-26.6, Math.min(-15.4, pos.x));
+    pos.z = Math.min(-49.55, pos.z);
+    if (!inStairOpeningX) {
+      pos.z = Math.max(-55.45, pos.z);
     }
   }
 }
@@ -679,30 +859,48 @@ function setupWorldCollisions() {
   addCollisionBox(-6.8, -4.5, 52.8, 55.5, 'gate-elephant-left');
   addCollisionBox(4.5, 6.8, 52.8, 55.5, 'gate-elephant-right');
 
-  // Krathong tables aligned parallel to the diagonal pier walkway (31.8, -20.4, rotY=-0.68)
-  addRotatedCollisionBox(31.8, -20.4, 5.1, 1.85, -0.68, 'krathong-tables');
+  // Krathong tables + vendors behind table aligned accurately with krathong_tables.glb (31.8, -20.4, rotY=-0.68)
+  addRotatedCollisionBox(31.94, -20.57, 4.95, 1.55, -0.68, 'krathong-tables');
 
-  // Concert stage moved to north-left (-21, -52.5), rotY = 0
-  addCollisionBox(-32.2, -9.8, -56.3, -48.7, 'concert-stage');
+  // Concert stage left & right speaker stacks (stage deck & back stairs are handled height-aware above!)
+  addCollisionBox(-31.85, -27.3, -49.25, -48.4, 'concert-speakers-left');
+  addCollisionBox(-14.6, -10.05, -49.25, -48.4, 'concert-speakers-right');
 
-  // Ubosot (15, -43.5) ~ 16.76m x 25.96m (leave slight margin around walls)
-  addCollisionBox(7.2, 22.8, -55.8, -31.2, 'ubosot');
+  // Ubosot (15, -43.5): Open Kampheng Kaeo walls with 2.6m walkable gateways on ALL 4 centered green arched gates!
+  // South wall (Z=-30.8) with open center gate X: 13.7..16.3
+  addCollisionBox(6.75, 13.7, -31.05, -30.55, 'ubosot-wall-south-w');
+  addCollisionBox(16.3, 23.25, -31.05, -30.55, 'ubosot-wall-south-e');
+  // North wall (Z=-56.2) with open center gate X: 13.7..16.3
+  addCollisionBox(6.75, 13.7, -56.45, -55.95, 'ubosot-wall-north-w');
+  addCollisionBox(16.3, 23.25, -56.45, -55.95, 'ubosot-wall-north-e');
+  // West wall (X=6.85) with open center green arched gate Z: -44.8..-42.2 (centered at Z=-43.5)
+  addCollisionBox(6.6, 7.1, -56.2, -44.8, 'ubosot-wall-west-n');
+  addCollisionBox(6.6, 7.1, -42.2, -30.8, 'ubosot-wall-west-s');
+  // East wall (X=23.15) with open center green arched gate Z: -44.8..-42.2 (centered at Z=-43.5)
+  addCollisionBox(22.9, 23.4, -56.2, -44.8, 'ubosot-wall-east-n');
+  addCollisionBox(22.9, 23.4, -42.2, -30.8, 'ubosot-wall-east-s');
+  // Inner Ubosot building plinth + front Dharmachakra pedestal (leaving ~3m open courtyard all around!)
+  addCollisionBox(10.05, 19.95, -51.5, -35.5, 'ubosot-hall');
+  addCollisionBox(14.35, 15.65, -34.2, -33.1, 'ubosot-dharmachakra');
 
-  // Sala Buddha (31, 13), rotY = -Math.PI/2 -> open tiled interior up to the altar!
-  addCollisionBox(32.5, 38.4, 10.6, 15.4, 'sala-buddha-altar');
-  addCollisionBox(37.7, 38.6, 7.8, 18.2, 'sala-buddha-back');
-  addCollisionBox(23.6, 38.5, 7.4, 8.2, 'sala-buddha-side-north');
-  addCollisionBox(23.6, 38.5, 17.8, 18.6, 'sala-buddha-side-south');
+  // Sala Buddha (31, 13), rotY = -Math.PI/2 -> Open pavilion! Walkable through EVERY pillar gap on all sides!
+  addCollisionBox(32.85, 35.75, 11.25, 14.75, 'sala-buddha-altar');
+  const salaPillarXs = [24.3, 26.98, 29.66, 32.34, 35.02, 37.7];
+  for (let i = 0; i < salaPillarXs.length; i++) {
+    const px = salaPillarXs[i];
+    addCollisionBox(px - 0.25, px + 0.25, 7.9, 8.4, `sala-pillar-n-${i}`);
+    addCollisionBox(px - 0.25, px + 0.25, 17.6, 18.1, `sala-pillar-s-${i}`);
+  }
 
-  // Pond water boundary (X: 37..55, Z: -27..+3) - pier extends to X=37.2 cleanly
-  addCollisionBox(37.2, 57, -27.5, 3.5, 'pond-water');
+  // Pond water is now SWIMMABLE so players can dive in and collect coins!
+  // (East/north/south temple perimeter walls keep swimmers cleanly inside the temple grounds.)
 
   // Temple perimeter walls (starting outside elephant pedestals at X = ±6.8)
   addCollisionBox(-42.5, -6.7, 53.55, 54.45, 'wall-front-left');
   addCollisionBox(6.7, 57.5, 53.55, 54.45, 'wall-front-right');
   addCollisionBox(-42.45, -41.55, -58.9, 54.4, 'wall-left');
   addCollisionBox(56.55, 57.45, -58.9, 54.4, 'wall-right');
-  addCollisionBox(-42.4, 57.4, -58.95, -58.05, 'wall-back');
+  addCollisionBox(-42.4, 57.4, -59.2, -58.35, 'wall-back');
 }
 
 // ============================================================================
@@ -1713,7 +1911,11 @@ function buildSpecialZones() {
   cmdGroup.add(cmdSign);
 
   scene.add(cmdGroup);
-  addCollisionBox(6.7, 10.3, -28.0, -24.4, 'command-tent');
+  // Open Command Tent: collide only with the 4 corner poles & purple front desk so players walk right under!
+  for (const [px, pz] of [[-1.65, -1.65], [1.65, -1.65], [-1.65, 1.65], [1.65, 1.65]]) {
+    addCollisionBox(8.5 + px - 0.14, 8.5 + px + 0.14, -26.2 + pz - 0.14, -26.2 + pz + 0.14, 'command-tent-pole');
+  }
+  addCollisionBox(7.1, 9.9, -25.6, -24.8, 'command-tent-desk');
 
   // 2) โซนประกวดกระทง: แท่นวางกระทงประกวดขนาดใหญ่ 3 ใบพร้อมป้ายไฟที่ (15, 7)
   const contestGroup = new THREE.Group();
@@ -2639,15 +2841,20 @@ function buildFallbackAvatarMesh() {
   handSocket.position.set(0.28, 0.65, 0.25);
   const leftHandSocket = new THREE.Group();
   leftHandSocket.position.set(-0.28, 0.65, 0.25);
-  root.add(body, head, handSocket, leftHandSocket);
+  const headSocket = new THREE.Group();
+  headSocket.position.set(0, 1.48, 0);
+  root.add(body, head, handSocket, leftHandSocket, headSocket);
   return {
     root,
     handSocket,
     leftHandSocket,
+    headSocket,
     headY: 1.5,
     triggerWave() {},
     triggerEat() {},
+    setEmote() {},
     setSeated() {},
+    setSwimming() {},
     update() {}
   };
 }
@@ -2709,6 +2916,14 @@ function buildAvatar(rawConfig = {}) {
     leftHandSocket.position.set(0.24, headY * 0.5, 0.25);
     root.add(leftHandSocket);
   }
+  const headSocket = new THREE.Group();
+  if (headBone) {
+    headSocket.position.set(0, 0.22, 0);
+    headBone.add(headSocket);
+  } else {
+    headSocket.position.set(0, headY, 0);
+    root.add(headSocket);
+  }
 
   // Bind Idle & Walk AnimationClips (wave, eat & sit are layered cleanly on top)
   const mixer = new THREE.AnimationMixer(model);
@@ -2725,11 +2940,15 @@ function buildAvatar(rawConfig = {}) {
   let currentLocomotion = 'idle';
   let isSeatedPose = false;
   let seatBlend = 0;
+  let isSwimmingPose = false;
+  let swimClock = 0;
   const WAVE_DURATION = 1.85;
   let waveElapsed = -1;
   const EAT_DURATION = 1.35;
   let eatElapsed = -1;
   let eatUseLeft = false;
+  let activeEmote = null; // 'ramwong' | 'cheer' | 'wai' | null
+  let emoteClock = 0;
 
   const tmpEuler = new THREE.Euler(0, 0, 0, 'XYZ');
   const tmpQuat = new THREE.Quaternion();
@@ -2739,6 +2958,7 @@ function buildAvatar(rawConfig = {}) {
   function triggerWave() {
     waveElapsed = 0;
     eatElapsed = -1;
+    activeEmote = null;
   }
 
   function triggerEat(useLeftHand = false) {
@@ -2747,12 +2967,25 @@ function buildAvatar(rawConfig = {}) {
     waveElapsed = -1;
   }
 
+  function setEmote(emoteType) {
+    activeEmote = emoteType || null;
+    emoteClock = 0;
+    if (activeEmote) {
+      waveElapsed = -1;
+      eatElapsed = -1;
+    }
+  }
+
   function setSeated(seated) {
     isSeatedPose = Boolean(seated);
   }
 
+  function setSwimming(swimming) {
+    isSwimmingPose = Boolean(swimming);
+  }
+
   function update(dt, isMoving = false, isRunning = false) {
-    const wantLocomotion = !isSeatedPose && isMoving && walkAction ? 'walk' : 'idle';
+    const wantLocomotion = !isSeatedPose && !isSwimmingPose && isMoving && walkAction ? 'walk' : 'idle';
     if (wantLocomotion !== currentLocomotion) {
       const fromAct = currentLocomotion === 'walk' ? walkAction : idleAction;
       const toAct = wantLocomotion === 'walk' ? walkAction : idleAction;
@@ -2799,6 +3032,32 @@ function buildAvatar(rawConfig = {}) {
         tmpEuler.set(1.38 * seatBlend, 0, 0, 'XYZ');
         tmpQuat.setFromEuler(tmpEuler);
         shinR.quaternion.slerp(tmpQuat, seatBlend);
+      }
+    } else if (isSwimmingPose) {
+      // Rhythmic breaststroke swimming arms + gentle water bob & underwater leg kick!
+      swimClock += dt * (isMoving ? (isRunning ? 8.5 : 6.2) : 3.2);
+      model.position.y = baseModelY + Math.sin(swimClock) * 0.04;
+      const stroke = Math.sin(swimClock);
+      const liftArm = Math.cos(swimClock);
+      if (armL) {
+        tmpEuler.set(-1.05 + stroke * 0.45, 0.35 + liftArm * 0.45, 0.55 + stroke * 0.3, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        armL.quaternion.slerp(tmpQuat, 0.85);
+      }
+      if (armR && waveElapsed < 0 && eatElapsed < 0) {
+        tmpEuler.set(-1.05 + stroke * 0.45, -0.35 - liftArm * 0.45, -0.55 - stroke * 0.3, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        armR.quaternion.slerp(tmpQuat, 0.85);
+      }
+      if (legL) {
+        tmpEuler.set(0.35 + Math.sin(swimClock * 1.6) * 0.35, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        legL.quaternion.slerp(tmpQuat, 0.75);
+      }
+      if (legR) {
+        tmpEuler.set(0.35 - Math.sin(swimClock * 1.6) * 0.35, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        legR.quaternion.slerp(tmpQuat, 0.75);
       }
     } else {
       model.position.y = baseModelY;
@@ -2878,16 +3137,110 @@ function buildAvatar(rawConfig = {}) {
         }
       }
     }
+
+    // Layered Dance & Thai Gesture Emotes ('ramwong', 'cheer', 'wai')
+    if (activeEmote && !isSwimmingPose && waveElapsed < 0 && eatElapsed < 0) {
+      emoteClock += dt;
+      if (activeEmote === 'ramwong') {
+        // Graceful Thai Ramwong alternating wrist/arm arcs & rhythmic sway
+        const w = emoteClock * 3.6;
+        const s = Math.sin(w);
+        const c = Math.cos(w);
+        model.position.y = baseModelY + Math.abs(s) * 0.045;
+        if (armL) {
+          tmpEuler.set(-0.95 + s * 0.42, 0.35 + c * 0.25, 0.85 + s * 0.45, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          armL.quaternion.slerp(tmpQuat, 0.85);
+        }
+        if (forearmL) {
+          tmpEuler.set(-0.65 - c * 0.35, 0.3, 0.45 + s * 0.3, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          forearmL.quaternion.slerp(tmpQuat, 0.85);
+        }
+        if (armR) {
+          tmpEuler.set(-0.95 - s * 0.42, -0.35 + c * 0.25, -0.85 + s * 0.45, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          armR.quaternion.slerp(tmpQuat, 0.85);
+        }
+        if (forearmR) {
+          tmpEuler.set(-0.65 + c * 0.35, -0.3, -0.45 + s * 0.3, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          forearmR.quaternion.slerp(tmpQuat, 0.85);
+        }
+        if (headBone) {
+          tmpQuat.setFromAxisAngle(zAxis, s * 0.14);
+          headBone.quaternion.multiply(tmpQuat);
+        }
+      } else if (activeEmote === 'cheer') {
+        // Concert double-arm pump + joyful bounce jump!
+        const b = emoteClock * 7.2;
+        const hop = Math.max(0, Math.sin(b));
+        if (!isSeatedPose) {
+          model.position.y = baseModelY + hop * 0.16;
+        }
+        if (armL) {
+          tmpEuler.set(-2.35 + Math.sin(b) * 0.32, 0.15, 0.52 + Math.cos(b) * 0.16, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          armL.quaternion.slerp(tmpQuat, 0.9);
+        }
+        if (armR) {
+          tmpEuler.set(-2.35 - Math.sin(b) * 0.32, -0.15, -0.52 - Math.cos(b) * 0.16, 'XYZ');
+          tmpQuat.setFromEuler(tmpEuler);
+          armR.quaternion.slerp(tmpQuat, 0.9);
+        }
+        if (headBone) {
+          tmpQuat.setFromAxisAngle(xAxis, -0.1 + Math.sin(b) * 0.12);
+          headBone.quaternion.multiply(tmpQuat);
+        }
+      } else if (activeEmote === 'wai') {
+        // Polite Thai Wai greeting (2.2s smooth bow)
+        const WAI_DUR = 2.2;
+        if (emoteClock >= WAI_DUR) {
+          activeEmote = null;
+        } else {
+          let wLift = 1;
+          if (emoteClock < 0.35) wLift = emoteClock / 0.35;
+          else if (emoteClock > WAI_DUR - 0.45) wLift = (WAI_DUR - emoteClock) / 0.45;
+          if (armL) {
+            tmpEuler.set(-0.95 * wLift, 0.42 * wLift, -0.35 * wLift, 'XYZ');
+            tmpQuat.setFromEuler(tmpEuler);
+            armL.quaternion.slerp(tmpQuat, wLift * 0.9);
+          }
+          if (forearmL) {
+            tmpEuler.set(-0.85 * wLift, 0.55 * wLift, -0.42 * wLift, 'XYZ');
+            tmpQuat.setFromEuler(tmpEuler);
+            forearmL.quaternion.slerp(tmpQuat, wLift * 0.9);
+          }
+          if (armR) {
+            tmpEuler.set(-0.95 * wLift, -0.42 * wLift, 0.35 * wLift, 'XYZ');
+            tmpQuat.setFromEuler(tmpEuler);
+            armR.quaternion.slerp(tmpQuat, wLift * 0.9);
+          }
+          if (forearmR) {
+            tmpEuler.set(-0.85 * wLift, -0.55 * wLift, 0.42 * wLift, 'XYZ');
+            tmpQuat.setFromEuler(tmpEuler);
+            forearmR.quaternion.slerp(tmpQuat, wLift * 0.9);
+          }
+          if (headBone) {
+            tmpQuat.setFromAxisAngle(xAxis, 0.28 * wLift);
+            headBone.quaternion.multiply(tmpQuat);
+          }
+        }
+      }
+    }
   }
 
   return {
     root,
     handSocket,
     leftHandSocket,
+    headSocket,
     headY,
     triggerWave,
     triggerEat,
+    setEmote,
     setSeated,
+    setSwimming,
     update
   };
 }
@@ -3112,7 +3465,7 @@ function updatePlayerHeldKrathong(playerObj, krathongType) {
   }
 }
 
-function createPlayerLabelElement(playerId, nickname) {
+function createPlayerLabelElement(playerId, nickname, hearts = 0) {
   const wrap = document.createElement('div');
   wrap.className = 'floating-label';
 
@@ -3123,13 +3476,115 @@ function createPlayerLabelElement(playerId, nickname) {
   speaking.className = 'label-speaking hidden';
   speaking.textContent = '🎙️ กำลังพูด...';
 
+  const isSelf = playerId === state.selfId;
   const name = document.createElement('div');
-  name.className = playerId === state.selfId ? 'label-name is-self' : 'label-name';
-  name.textContent = nickname;
+  name.className = isSelf ? 'label-name is-self' : 'label-name is-friend';
+
+  const nameText = document.createElement('span');
+  nameText.textContent = nickname;
+  const heartSpan = document.createElement('span');
+  heartSpan.className = hearts > 0 ? 'label-heart-count' : 'label-heart-count hidden';
+  heartSpan.textContent = `❤️ ${hearts}`;
+  name.append(nameText, heartSpan);
+
+  if (!isSelf) {
+    name.title = 'คลิกเพื่อส่งหัวใจหรือมอบเหรียญให้เพื่อน';
+    name.addEventListener('pointerdown', (e) => e.stopPropagation());
+    name.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPlayerSocialDialog(playerId);
+    });
+  }
 
   wrap.append(bubble, speaking, name);
   dom.labelsLayer.appendChild(wrap);
-  return { wrap, bubble, speaking, name };
+  return { wrap, bubble, speaking, name, heartSpan };
+}
+
+function updatePlayerHeartBadge(p, hearts) {
+  if (!p) return;
+  const val = Math.max(0, Math.floor(Number(hearts) || 0));
+  p.hearts = val;
+  if (p.labelEls?.heartSpan) {
+    p.labelEls.heartSpan.textContent = `❤️ ${val}`;
+    p.labelEls.heartSpan.classList.toggle('hidden', val <= 0);
+  }
+  if (state.socialTargetId === p.id && dom.socialFriendHearts) {
+    dom.socialFriendHearts.textContent = `❤️ ${val} หัวใจ`;
+  }
+}
+
+function updatePlayerHeadAccessory(p, accessoryType) {
+  if (!p) return;
+  if (p.headAccessoryMesh && p.headSocket) {
+    p.headSocket.remove(p.headAccessoryMesh);
+    p.headAccessoryMesh = null;
+  }
+  p.headAccessory = accessoryType || null;
+  if (p.headAccessory && p.headSocket) {
+    const mesh = createHeadAccessoryMesh(p.headAccessory);
+    if (mesh) {
+      p.headSocket.add(mesh);
+      p.headAccessoryMesh = mesh;
+    }
+  }
+  if (p.id === state.selfId) {
+    state.headAccessory = p.headAccessory;
+    if (dom.btnRemoveAccessory) {
+      dom.btnRemoveAccessory.classList.toggle('hidden', !state.headAccessory);
+    }
+  }
+}
+
+function spawnSocialFloatingFx(playerId, symbols) {
+  const p = state.players.get(playerId);
+  if (!p?.labelEls?.wrap) return;
+  symbols.forEach((sym, idx) => {
+    setTimeout(() => {
+      if (!p.labelEls?.wrap) return;
+      const el = document.createElement('span');
+      el.className = 'label-fx-burst';
+      el.textContent = sym;
+      const offsetX = Math.round((Math.random() - 0.5) * 62);
+      el.style.setProperty('--fx-x', `${offsetX}px`);
+      p.labelEls.wrap.appendChild(el);
+      setTimeout(() => el.remove(), 1400);
+    }, idx * 110);
+  });
+}
+
+function playHeartPopSound() {
+  const ctx = audioEngine.ctx;
+  if (!state.musicEnabled || !ctx || ctx.state !== 'running') return;
+  try {
+    const now = ctx.currentTime;
+    [523.25, 659.25, 783.99].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.065);
+      g.gain.setValueAtTime(0.11, now + i * 0.065);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.065 + 0.24);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(now + i * 0.065);
+      osc.stop(now + i * 0.065 + 0.26);
+    });
+  } catch {}
+}
+
+function openPlayerSocialDialog(targetId) {
+  if (!state.joined || !targetId || targetId === state.selfId) return;
+  const target = state.players.get(targetId);
+  if (!target || !dom.dialogPlayerSocial) return;
+
+  state.socialTargetId = targetId;
+  if (dom.socialFriendName) dom.socialFriendName.textContent = target.nickname;
+  if (dom.socialFriendHearts) dom.socialFriendHearts.textContent = `❤️ ${target.hearts || 0} หัวใจ`;
+  if (dom.socialMyCoins) dom.socialMyCoins.textContent = `คงเหลือ: 💰 ${state.coins} เหรียญ`;
+  if (dom.inputGiftCoins) dom.inputGiftCoins.value = '';
+  if (!dom.dialogPlayerSocial.open) {
+    dom.dialogPlayerSocial.showModal();
+  }
 }
 
 function spawnOrUpdatePlayer(data) {
@@ -3143,18 +3598,23 @@ function spawnOrUpdatePlayer(data) {
   built.root.rotation.y = data.rotY ?? Math.PI;
   scene.add(built.root);
 
-  const labelEls = createPlayerLabelElement(data.id, data.nickname);
+  const initHearts = Math.max(0, Math.floor(Number(data.hearts) || 0));
+  const labelEls = createPlayerLabelElement(data.id, data.nickname, initHearts);
   const pObj = {
     id: data.id,
     nickname: data.nickname,
     avatar: data.avatar,
+    hearts: initHearts,
     group: built.root,
     handSocket: built.handSocket,
     leftHandSocket: built.leftHandSocket || built.handSocket,
+    headSocket: built.headSocket,
     headY: built.headY,
     triggerWave: built.triggerWave,
     triggerEat: built.triggerEat,
+    setEmote: built.setEmote,
     setSeated: built.setSeated,
+    setSwimming: built.setSwimming,
     updateAnim: built.update,
     currentPos: new THREE.Vector3(data.x || 0, data.y || 0, data.z || 59),
     targetPos: new THREE.Vector3(data.x || 0, data.y || 0, data.z || 59),
@@ -3162,10 +3622,13 @@ function spawnOrUpdatePlayer(data) {
     targetRotY: data.rotY ?? Math.PI,
     isMoving: Boolean(data.isMoving),
     isRunning: Boolean(data.isRunning),
+    isSwimming: Boolean(data.isSwimming),
     heldKrathong: null,
     heldMesh: null,
     heldProp: null,
     heldPropMesh: null,
+    headAccessory: null,
+    headAccessoryMesh: null,
     propBites: 0,
     seatedChairId: null,
     isSpeaking: Boolean(data.isSpeaking),
@@ -3179,9 +3642,18 @@ function spawnOrUpdatePlayer(data) {
   if (data.heldProp) {
     updatePlayerHeldProp(pObj, data.heldProp, data.propBites ?? 3);
   }
+  if (data.headAccessory) {
+    updatePlayerHeadAccessory(pObj, data.headAccessory);
+  }
+  if (data.activeEmote && pObj.setEmote) {
+    pObj.setEmote(data.activeEmote);
+  }
   if (data.seatedChairId) {
     pObj.seatedChairId = data.seatedChairId;
     if (pObj.setSeated) pObj.setSeated(true);
+  }
+  if (pObj.isSwimming && pObj.setSwimming) {
+    pObj.setSwimming(true);
   }
   if (pObj.isSpeaking) {
     pObj.labelEls.speaking.classList.remove('hidden');
@@ -3794,10 +4266,11 @@ function updateSpatialConcertAudio(playerPos, dt = 0.016) {
     concertZoneWeight = 1 - smoothT;
     const distToStage = playerPos.distanceTo(CONCERT_POS);
     const proximityBoost = 0.65 + 0.35 * Math.max(0, 1 - Math.max(0, distToStage - 8) / 48);
-    targetConcertVol = concertZoneWeight * proximityBoost * 0.56;
+    const horrorDuck = hauntedForestState ? hauntedForestState.musicDuckFactor : 1.0;
+    targetConcertVol = concertZoneWeight * proximityBoost * 0.56 * horrorDuck;
 
     // Zone 2 (Festival Ambient): 0% inside concert red box, fades smoothly to clear comfortable ambient outside
-    targetFestivalVol = audioEngine.festivalTracks.length > 0 ? smoothT * 0.34 : 0;
+    targetFestivalVol = audioEngine.festivalTracks.length > 0 ? smoothT * 0.34 * horrorDuck : 0;
   }
 
   // Smooth exponential volume lerp
@@ -4262,6 +4735,17 @@ async function fetchRoomsStatus() {
   }
 }
 
+function updateCoinsUI(coins) {
+  const val = Math.max(0, Number.isFinite(Number(coins)) ? Math.floor(Number(coins)) : 0);
+  state.coins = val;
+  if (dom.hudCoins) {
+    dom.hudCoins.textContent = `💰 ${val} เหรียญ`;
+  }
+  if (dom.socialMyCoins) {
+    dom.socialMyCoins.textContent = `คงเหลือ: 💰 ${val} เหรียญ`;
+  }
+}
+
 function connectSocketAndJoin() {
   socket = window.io(SERVER_URL || undefined, {
     transports: ['websocket', 'polling']
@@ -4281,11 +4765,12 @@ function connectSocketAndJoin() {
           state.selfId = res.selfId;
           state.roomId = res.roomId || 'room-1';
           state.roomName = res.roomName || 'ลานงาน 1';
-          state.roomMax = res.roomMax || 35;
+          state.roomMax = res.roomMax || 50;
           state.joined = true;
           dom.lobbyOverlay.classList.add('hidden');
           dom.hud.classList.remove('hidden');
           dom.hudNickname.textContent = state.nickname;
+          if (typeof res.coins === 'number') updateCoinsUI(res.coins);
           updateOnlineCounter();
 
           // Release the Lobby's 2nd WebGL context once to free mobile VRAM immediately
@@ -4319,6 +4804,7 @@ function connectSocketAndJoin() {
     if (data.roomId) state.roomId = data.roomId;
     if (data.roomName) state.roomName = data.roomName;
     if (data.roomMax) state.roomMax = data.roomMax;
+    if (typeof data.coins === 'number') updateCoinsUI(data.coins);
 
     // Prune stale avatars left behind after mobile Wi-Fi/4G reconnection (prevents ghost duplicates!)
     const incomingIds = new Set((data.players || []).map((p) => p.id));
@@ -4334,6 +4820,12 @@ function connectSocketAndJoin() {
     (data.players || []).forEach((p) => spawnOrUpdatePlayer(p));
     (data.krathongs || []).forEach((k) => spawnFloatedKrathong(k));
     (data.lanterns || []).forEach((l) => spawnReleasedLantern(l));
+    if (pondCoinsState && Array.isArray(data.pondCoins)) {
+      syncPondCoins(pondCoinsState, data.pondCoins);
+    }
+    if (data.contestSummary) {
+      state.contestVotes = data.contestSummary;
+    }
     if (Array.isArray(data.stageTracks) && data.stageTracks.length > 0) {
       audioEngine.tracks = data.stageTracks;
     }
@@ -4363,6 +4855,8 @@ function connectSocketAndJoin() {
     p.targetRotY = d.rotY;
     p.isMoving = d.isMoving;
     p.isRunning = d.isRunning;
+    p.isSwimming = Boolean(d.isSwimming);
+    if (p.setSwimming) p.setSwimming(p.isSwimming);
   }
 
   socket.on('player:moved', applyRemoteMove);
@@ -4370,6 +4864,51 @@ function connectSocketAndJoin() {
     if (!Array.isArray(list)) return;
     for (let i = 0; i < list.length; i++) {
       applyRemoteMove(list[i]);
+    }
+  });
+
+  socket.on('coins:updated', (d) => {
+    if (d && typeof d.coins === 'number') {
+      updateCoinsUI(d.coins);
+    }
+  });
+
+  socket.on('coin:spawned', (c) => {
+    if (pondCoinsState && c) {
+      spawnPondCoin(pondCoinsState, c);
+    }
+  });
+
+  socket.on('coin:collected', (d) => {
+    if (pondCoinsState && d?.coinId) {
+      removePondCoin(pondCoinsState, d.coinId);
+    }
+  });
+
+  socket.on('player:heartReceived', (d) => {
+    if (!d?.toId) return;
+    const target = state.players.get(d.toId);
+    if (target) {
+      updatePlayerHeartBadge(target, d.hearts);
+      spawnSocialFloatingFx(d.toId, ['❤️', '💖', '💕', '💗', '✨']);
+    }
+    if (d.toId === state.selfId) {
+      playHeartPopSound();
+      showToast(`❤️ ${d.fromName} ส่งหัวใจให้คุณ! (สะสม ${d.hearts} ดวง)`);
+    } else if (d.fromId === state.selfId) {
+      playHeartPopSound();
+      showToast(`❤️ ส่งหัวใจให้ ${d.toName} เรียบร้อยแล้ว!`);
+    }
+  });
+
+  socket.on('player:coinGifted', (d) => {
+    if (!d?.toId) return;
+    spawnSocialFloatingFx(d.toId, ['💰', `+${d.amount} 💰`, '✨']);
+    if (d.toId === state.selfId) {
+      playCoinCollectSound(audioEngine.ctx, state.musicEnabled, d.amount >= 5 ? 5 : 1);
+      showToast(`🎁 ${d.fromName} มอบเหรียญให้คุณ +${d.amount} 💰!`);
+    } else if (d.fromId === state.selfId) {
+      showToast(`🎁 มอบ ${d.amount} 💰 ให้ ${d.toName} เรียบร้อยแล้ว!`);
     }
   });
 
@@ -4433,6 +4972,18 @@ function connectSocketAndJoin() {
     spawnReleasedLantern(l);
   });
 
+  socket.on('fireworks:launched', (fw) => {
+    if (!fw || !fireworksState) return;
+    launchFireworkShow(
+      scene,
+      fireworksState,
+      fw.style,
+      audioEngine.ctx,
+      state.musicEnabled,
+      state.lowGraphics
+    );
+  });
+
   socket.on('stage:trackChanged', (trackData) => {
     applyRoomStageTrack(trackData);
   });
@@ -4455,6 +5006,29 @@ function connectSocketAndJoin() {
     const p = state.players.get(d?.id);
     if (p && p.triggerWave) {
       p.triggerWave();
+    }
+  });
+
+  socket.on('player:emoted', (d) => {
+    const p = state.players.get(d?.id);
+    if (!p) return;
+    if (d.emote === 'wave') {
+      if (p.triggerWave) p.triggerWave();
+    } else if (p.setEmote) {
+      p.setEmote(d.emote || null);
+    }
+  });
+
+  socket.on('player:accessoryUpdated', (d) => {
+    const p = state.players.get(d?.id);
+    if (p) updatePlayerHeadAccessory(p, d.headAccessory);
+  });
+
+  socket.on('contest:updated', (summary) => {
+    if (!summary) return;
+    state.contestVotes = summary;
+    if (dom.dialogContestVote?.open) {
+      renderContestVoteUI();
     }
   });
 
@@ -4605,11 +5179,12 @@ function drawMinimap() {
   minimapCtx.fillStyle = '#f59e0b';
   minimapCtx.fillRect(mapX(-4.5), mapY(52.5), mapW(9), mapH(3));
 
-  // Temple fair gardens (SE, SW/Mid-West & NE trees), central lantern plaza, photo booth & concert seating
+  // Temple fair gardens, central lantern plaza, photo booth, concert seating & fireworks station
   drawGardenMinimap(minimapCtx, mapX, mapY);
   drawLanternPlazaMinimap(minimapCtx, mapX, mapY, mapW);
   drawPhotoBoothMinimap(minimapCtx, mapX, mapY, mapW, mapH);
   drawConcertChairsMinimap(minimapCtx, mapX, mapY, mapW, mapH);
+  drawFireworksMinimap(minimapCtx, mapX, mapY);
 
   // Remote online players (blue dots)
   for (const [id, p] of state.players) {
@@ -4719,6 +5294,8 @@ function openZoneDialog(zone) {
   } else if (zone.id === 'concert-playlist') {
     renderStagePlaylistUI();
     dom.dialogStagePlaylist.showModal();
+  } else if (zone.id === 'fireworks-station') {
+    if (dom.dialogFireworks) dom.dialogFireworks.showModal();
   } else if (zone.id === 'photo-booth') {
     enterPhotoMode();
   } else if (zone.id === 'vendor-stall' && zone.vendor) {
@@ -4726,15 +5303,26 @@ function openZoneDialog(zone) {
     const meta = VENDOR_PROP_META[propType];
     const self = state.players.get(state.selfId);
     const nextProp = state.heldProp === propType ? null : propType;
-    if (self) updatePlayerHeldProp(self, nextProp, 3);
-    if (socket) socket.emit('player:prop', { type: nextProp });
-    if (nextProp && meta) {
-      const hint = meta.edible
-        ? `กด F หรือแตะปุ่ม ${meta.verbEmoji} เพื่อ${meta.verb}ได้เลย!`
-        : 'กด H โบกโชว์หน้าเวทีได้เลย!';
-      showToast(`${meta.emoji} รับ${meta.name}จากร้าน "${zone.vendor.tpl.signTitle}" แล้ว! ${hint}`);
-    } else if (meta) {
-      showToast(`วาง${meta.name}เรียบร้อยแล้ว`);
+    if (!nextProp) {
+      if (self) updatePlayerHeldProp(self, null, 0);
+      if (socket) socket.emit('player:prop', { type: null });
+      if (meta) showToast(`วาง${meta.name}เรียบร้อยแล้ว`);
+    } else if (socket) {
+      socket.emit('player:prop', { type: nextProp }, (ack) => {
+        if (ack && ack.ok === false && ack.error === 'NOT_ENOUGH_COINS') {
+          showToast(
+            `💰 เหรียญไม่พอ! ซื้อของกินต้องใช้ ${ack.required || 5} เหรียญ — เดินลงไปว่ายน้ำเก็บเหรียญในสระลอยกระทงได้เลย 🏊`
+          );
+          return;
+        }
+        if (self) updatePlayerHeldProp(self, nextProp, 3);
+        if (meta) {
+          const hint = meta.edible
+            ? `กด F หรือแตะปุ่ม ${meta.verbEmoji} เพื่อ${meta.verb}ได้เลย!`
+            : 'กด H โบกโชว์หน้าเวทีได้เลย!';
+          showToast(`${meta.emoji} ซื้อ${meta.name} (-5 💰) จากร้าน "${zone.vendor.tpl.signTitle}" แล้ว! ${hint}`);
+        }
+      });
     }
   } else if (zone.id === 'concert-chair') {
     if (state.seatedChairId) {
@@ -4744,6 +5332,12 @@ function openZoneDialog(zone) {
     }
   } else if (zone.id === 'lantern-plaza') {
     dom.dialogReleaseLantern.showModal();
+  } else if (zone.id === 'esiimsi-stand') {
+    openEsiimsiDialog();
+  } else if (zone.id === 'balloon-dart') {
+    openBalloonGameDialog();
+  } else if (zone.id === 'krathong-contest') {
+    openContestVoteDialog();
   } else if (zone.id === 'sala-buddha') {
     const self = state.players.get(state.selfId);
     if (self) {
@@ -4811,10 +5405,17 @@ dom.releaseLanternForm.addEventListener('submit', (e) => {
     : LANTERN_PLAZA_CONFIG.z;
 
   if (socket) {
-    socket.emit('lantern:release', { color, wish, x: launchX, z: launchZ }, () => {
+    socket.emit('lantern:release', { color, wish, x: launchX, z: launchZ }, (ack) => {
+      if (ack && ack.ok === false && ack.error === 'NOT_ENOUGH_COINS') {
+        dom.dialogReleaseLantern.close();
+        showToast(
+          `💰 เหรียญไม่พอ! ปล่อยโคมลอยต้องใช้ ${ack.required || 5} เหรียญ — ลงไปว่ายน้ำเก็บเหรียญในสระได้เลย 🏊`
+        );
+        return;
+      }
       dom.inputLanternWish.value = '';
       dom.dialogReleaseLantern.close();
-      showToast('ปล่อยโคมลอยขึ้นสู่ท้องฟ้าเรียบร้อยแล้ว 🏮✨');
+      showToast('ปล่อยโคมลอยขึ้นสู่ท้องฟ้าเรียบร้อยแล้ว (-5 💰) 🏮✨');
     });
   }
 });
@@ -4825,6 +5426,123 @@ function showRandomBlessing() {
   dom.buddhaBlessingText.textContent = `"${b}"`;
 }
 dom.btnPrayAgain.addEventListener('click', showRandomBlessing);
+
+if (dom.btnOpenEsiimsiFromBuddha) {
+  dom.btnOpenEsiimsiFromBuddha.addEventListener('click', () => {
+    if (dom.dialogBuddha?.open) dom.dialogBuddha.close();
+    openEsiimsiDialog();
+  });
+}
+
+// ============================================================================
+// ESIIMSI FORTUNE SHAKER (เขย่าเซียมซี วัดทุ่งท่าช้าง — 28 ใบทำนาย)
+// ============================================================================
+
+let esiimsiShaking = false;
+let lastEsiimsiResult = null;
+
+function playEsiimsiRattleSound() {
+  const ctx = audioEngine.ctx;
+  if (!ctx || ctx.state !== 'running') return;
+  try {
+    const now = ctx.currentTime;
+    // Authentic bamboo-stick rattling clicks inside a wooden cylinder
+    const clickTimes = [0.02, 0.09, 0.17, 0.24, 0.33, 0.41, 0.50, 0.59, 0.68, 0.78, 0.88, 0.99];
+    clickTimes.forEach((dtClick, idx) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      const freq = 620 + ((idx * 173) % 420);
+      osc.frequency.setValueAtTime(freq, now + dtClick);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.45, now + dtClick + 0.045);
+      g.gain.setValueAtTime(0.11, now + dtClick);
+      g.gain.exponentialRampToValueAtTime(0.001, now + dtClick + 0.05);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(now + dtClick);
+      osc.stop(now + dtClick + 0.055);
+    });
+  } catch {}
+}
+
+function openEsiimsiDialog() {
+  if (!dom.dialogEsiimsi) return;
+  if (dom.esiimsiCup) dom.esiimsiCup.classList.remove('is-shaking');
+  if (!dom.dialogEsiimsi.open) {
+    dom.dialogEsiimsi.showModal();
+  }
+}
+
+function shakeEsiimsi() {
+  if (esiimsiShaking) return;
+  esiimsiShaking = true;
+
+  if (dom.btnShakeEsiimsi) {
+    dom.btnShakeEsiimsi.disabled = true;
+    dom.btnShakeEsiimsi.textContent = '🎋 กำลังเขย่ากระบอกเซียมซี...';
+  }
+  if (dom.esiimsiPopStick) dom.esiimsiPopStick.classList.add('hidden');
+  if (dom.esiimsiSlipCard) dom.esiimsiSlipCard.classList.add('hidden');
+  if (dom.btnShareEsiimsi) dom.btnShareEsiimsi.classList.add('hidden');
+  if (dom.esiimsiCup) dom.esiimsiCup.classList.add('is-shaking');
+
+  playEsiimsiRattleSound();
+
+  setTimeout(() => {
+    esiimsiShaking = false;
+    if (dom.esiimsiCup) dom.esiimsiCup.classList.remove('is-shaking');
+    if (dom.btnShakeEsiimsi) {
+      dom.btnShakeEsiimsi.disabled = false;
+      dom.btnShakeEsiimsi.textContent = '🎋 เขย่าเซียมซีอีกครั้ง';
+    }
+
+    const picked = ESIIMSI_FORTUNES[Math.floor(Math.random() * ESIIMSI_FORTUNES.length)];
+    lastEsiimsiResult = picked;
+    playTempleBell();
+
+    if (dom.esiimsiPopNum) dom.esiimsiPopNum.textContent = String(picked.num);
+    if (dom.esiimsiPopStick) {
+      dom.esiimsiPopStick.classList.remove('hidden');
+    }
+    if (dom.esiimsiSlipTitle) dom.esiimsiSlipTitle.textContent = `ใบเซียมซี ใบที่ ${picked.num}`;
+    if (dom.esiimsiTierBadge) {
+      const icon = picked.tier === 'great' ? '🌟' : picked.tier === 'good' ? '✨' : '🌙';
+      dom.esiimsiTierBadge.textContent = `${icon} ${picked.level}`;
+      dom.esiimsiTierBadge.className = `esiimsi-tier-badge tier-${picked.tier}`;
+    }
+    if (dom.esiimsiVerse) dom.esiimsiVerse.textContent = picked.verse;
+    if (dom.esiimsiWork) dom.esiimsiWork.textContent = picked.work;
+    if (dom.esiimsiFinance) dom.esiimsiFinance.textContent = picked.finance;
+    if (dom.esiimsiLove) dom.esiimsiLove.textContent = picked.love;
+    if (dom.esiimsiHealth) dom.esiimsiHealth.textContent = picked.health;
+    if (dom.esiimsiLuckyNum) dom.esiimsiLuckyNum.textContent = picked.lucky;
+    if (dom.esiimsiSlipCard) dom.esiimsiSlipCard.classList.remove('hidden');
+    if (dom.btnShareEsiimsi) dom.btnShareEsiimsi.classList.remove('hidden');
+
+    if (picked.tier === 'great' && socket) {
+      socket.emit('esiimsi:bonus', { num: picked.num, tier: picked.tier }, (ack) => {
+        if (ack?.ok) {
+          playCoinCollectSound(audioEngine.ctx, state.musicEnabled, 5);
+          showToast('🌟 ดวงดีมาก! รับโบนัสพิเศษ +5 💰 เหรียญงานวัด!');
+        }
+      });
+    }
+  }, 1150);
+}
+
+if (dom.btnShakeEsiimsi) {
+  dom.btnShakeEsiimsi.addEventListener('click', shakeEsiimsi);
+}
+if (dom.btnShareEsiimsi) {
+  dom.btnShareEsiimsi.addEventListener('click', () => {
+    if (!lastEsiimsiResult || !socket) return;
+    const f = lastEsiimsiResult;
+    socket.emit('activity:announce', {
+      text: `เสี่ยงเซียมซีได้ใบที่ ${f.num} (${f.level}) เลขนำโชค ${f.lucky} 🎋✨`
+    });
+    showToast(`📢 แชร์ผลเซียมซีใบที่ ${f.num} ลงแชตงานวัดแล้ว!`);
+    dom.btnShareEsiimsi.classList.add('hidden');
+  });
+}
 
 // Concert Stage Playlist Prev / Next Buttons
 if (dom.btnStagePrev) {
@@ -4838,6 +5556,424 @@ if (dom.btnStageNext) {
     if (!socket) return;
     socket.emit('stage:selectTrack', { step: 1 });
   });
+}
+
+// Fireworks Style Selection Buttons (4 Styles -> Synced Real-time across room!)
+document.querySelectorAll('[data-firework-style]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    unlockAndResumeAudio(false);
+    const style = btn.dataset.fireworkStyle;
+    const meta = FIREWORK_STYLES[style] || FIREWORK_STYLES.gold;
+    if (!socket) return;
+    socket.emit('fireworks:launch', { style }, (ack) => {
+      if (ack && ack.ok === false) {
+        if (ack.error === 'COOLDOWN') {
+          showToast('⏳ กรุณารอสัก 3 วินาทีก่อนจุดพลุชุดถัดไปนะครับ');
+          return;
+        }
+        if (ack.error === 'NOT_ENOUGH_COINS') {
+          showToast(
+            `💰 เหรียญไม่พอ! จุดพลุชุดนี้ต้องใช้ ${ack.required || 10} เหรียญ — ไปว่ายน้ำเก็บเหรียญในสระได้เลย 🏊`
+          );
+          return;
+        }
+      }
+      if (dom.dialogFireworks?.open) dom.dialogFireworks.close();
+      const cost = style === 'finale' ? 15 : 10;
+      // Smoothly tilt the launcher's camera upward facing the northern sky so they enjoy the full firework burst!
+      state.fireworkViewUntil = performance.now() + (style === 'finale' ? 6200 : 4800);
+      showToast(`${meta.emoji} จุด${meta.name} (-${cost} 💰) ขึ้นท้องฟ้าแล้ว! กล้องกำลังเงยชมพลุให้ครับ`);
+    });
+  });
+});
+
+// Friend Social Popup: Send Heart (Free, 3s cooldown) & Gift Coins
+if (dom.btnSocialHeart) {
+  dom.btnSocialHeart.addEventListener('click', () => {
+    const targetId = state.socialTargetId;
+    if (!socket || !targetId) return;
+    socket.emit('player:sendHeart', { targetId }, (ack) => {
+      if (ack && ack.ok === false) {
+        if (ack.error === 'COOLDOWN') {
+          showToast('⏳ รอสัก 3 วินาทีก่อนส่งหัวใจดวงถัดไปนะครับ');
+        } else {
+          showToast('เพื่อนคนนี้ออกจากงานวัดไปแล้วครับ');
+          if (dom.dialogPlayerSocial?.open) dom.dialogPlayerSocial.close();
+        }
+      }
+    });
+  });
+}
+
+function sendCoinsToTarget(amount) {
+  const targetId = state.socialTargetId;
+  const val = Math.floor(Number(amount));
+  if (!socket || !targetId || !Number.isFinite(val) || val < 1 || val > 999) {
+    showToast('กรุณาระบุจำนวนเหรียญระหว่าง 1–999 เหรียญครับ');
+    return;
+  }
+  socket.emit('player:giftCoins', { targetId, amount: val }, (ack) => {
+    if (ack && ack.ok === false) {
+      if (ack.error === 'NOT_ENOUGH_COINS') {
+        showToast(`💰 เหรียญไม่พอ! คุณมี ${ack.coins || 0} เหรียญ — ไปว่ายน้ำเก็บเหรียญในสระเพิ่มได้เลย 🏊`);
+      } else if (ack.error === 'INVALID_TARGET') {
+        showToast('เพื่อนคนนี้ออกจากงานวัดไปแล้วครับ');
+        if (dom.dialogPlayerSocial?.open) dom.dialogPlayerSocial.close();
+      }
+      return;
+    }
+    if (dom.inputGiftCoins) dom.inputGiftCoins.value = '';
+    if (dom.dialogPlayerSocial?.open) dom.dialogPlayerSocial.close();
+  });
+}
+
+document.querySelectorAll('[data-gift-coins]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    sendCoinsToTarget(btn.dataset.giftCoins);
+  });
+});
+
+if (dom.socialGiftForm) {
+  dom.socialGiftForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    sendCoinsToTarget(dom.inputGiftCoins?.value);
+  });
+}
+
+// ============================================================================
+// 4-EMOTE DANCE & GESTURE CONTROLLER (Wave / Ramwong / Cheer / Wai)
+// ============================================================================
+
+function updateEmoteButtonsUI() {
+  document.querySelectorAll('[data-emote]').forEach((btn) => {
+    btn.classList.toggle('is-active', btn.dataset.emote === state.activeEmote);
+  });
+  if (dom.btnEmoteToggle) {
+    dom.btnEmoteToggle.classList.toggle('is-active', Boolean(state.activeEmote));
+  }
+}
+
+function triggerLocalEmote(emoteType) {
+  if (!state.joined) return;
+  const self = state.players.get(state.selfId);
+  if (emoteType === 'wave') {
+    state.activeEmote = null;
+    updateEmoteButtonsUI();
+    triggerSelfWave();
+    return;
+  }
+  // Toggle off if pressing the same loop dance again
+  const nextEmote = state.activeEmote === emoteType ? null : emoteType;
+  state.activeEmote = nextEmote === 'wai' ? null : nextEmote;
+  if (self?.setEmote) {
+    self.setEmote(nextEmote);
+  }
+  updateEmoteButtonsUI();
+  if (socket) {
+    socket.emit('player:emote', { emote: nextEmote });
+  }
+  const labels = {
+    ramwong: '💃 กำลังเต้นรำวงงานวัด! (ขยับเดินเพื่อหยุดเต้น)',
+    cheer: '🕺 โยกเชียร์คอนเสิร์ตสุดมันส์! (ขยับเดินเพื่อหยุด)',
+    wai: '🙏 สวัสดีวันลอยกระทงครับ/ค่ะ!'
+  };
+  if (nextEmote && labels[nextEmote]) {
+    showToast(labels[nextEmote]);
+  }
+}
+
+if (dom.btnEmoteToggle && dom.emoteDrawer) {
+  dom.btnEmoteToggle.addEventListener('click', () => {
+    const isHidden = dom.emoteDrawer.classList.toggle('hidden');
+    dom.btnEmoteToggle.setAttribute('aria-expanded', String(!isHidden));
+  });
+}
+document.querySelectorAll('[data-emote]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    triggerLocalEmote(btn.dataset.emote);
+    if (dom.emoteDrawer) dom.emoteDrawer.classList.add('hidden');
+    if (dom.btnEmoteToggle) dom.btnEmoteToggle.setAttribute('aria-expanded', 'false');
+  });
+});
+
+// ============================================================================
+// MINI-GAME 1: BALLOON DART (5 coins -> pop 7 in 15s -> +15 coins & Teddy Bear!)
+// ============================================================================
+
+let balloonGameActive = false;
+let balloonPoppedCount = 0;
+let balloonTimeLeft = 15.0;
+let balloonTickTimer = null;
+let balloonItems = [];
+
+function clearBalloonBoardTargets() {
+  for (const item of balloonItems) {
+    item.el.remove();
+  }
+  balloonItems = [];
+}
+
+function stopBalloonGame(submitResult = false) {
+  if (balloonTickTimer) {
+    clearInterval(balloonTickTimer);
+    balloonTickTimer = null;
+  }
+  const wasActive = balloonGameActive;
+  balloonGameActive = false;
+  clearBalloonBoardTargets();
+
+  if (submitResult && wasActive && socket) {
+    const finalPopped = balloonPoppedCount;
+    socket.emit('minigame:balloonFinish', { popped: finalPopped }, (ack) => {
+      if (dom.balloonBoardOverlay) dom.balloonBoardOverlay.classList.remove('hidden');
+      if (ack?.won) {
+        playStarWinSound(audioEngine.ctx, state.musicEnabled, true);
+        if (dom.balloonResultText) {
+          dom.balloonResultText.textContent = `🏆 เก่งมาก! ปาแตก ${finalPopped} ลูก รับ +15 💰 และตุ๊กตาหมีงานวัด 🧸!`;
+        }
+        showToast(`🏆 ชนะปาโป่ง! รับ +15 💰 และถือตุ๊กตาหมีงานวัด 🧸 อวดเพื่อนได้เลย!`);
+      } else {
+        if (dom.balloonResultText) {
+          dom.balloonResultText.textContent = `🎈 ปาแตกได้ ${finalPopped}/7 ลูก อีกนิดเดียว! ลองแก้มือใหม่อีกรอบไหม?`;
+        }
+      }
+      if (dom.btnBalloonStart) {
+        dom.btnBalloonStart.textContent = '🎯 เล่นอีกรอบ (5 💰)';
+      }
+    });
+  } else if (dom.balloonBoardOverlay) {
+    dom.balloonBoardOverlay.classList.remove('hidden');
+  }
+}
+
+function spawnBalloonTarget() {
+  if (!dom.balloonBoard || !balloonGameActive) return;
+  const colors = ['#ef4444', '#facc15', '#22d3ee', '#ec4899', '#4ade80', '#a855f7', '#f97316'];
+  const col = colors[Math.floor(Math.random() * colors.length)];
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'balloon-target';
+  el.style.background = `radial-gradient(circle at 32% 28%, #ffffff 0%, ${col} 42%, #0f172a 135%)`;
+  el.setAttribute('aria-label', 'ลูกโป่ง');
+
+  const item = {
+    el,
+    x: 12 + Math.random() * 76,
+    y: 18 + Math.random() * 64,
+    vx: (Math.random() < 0.5 ? -1 : 1) * (16 + Math.random() * 18),
+    vy: (Math.random() < 0.5 ? -1 : 1) * (12 + Math.random() * 14),
+    popped: false
+  };
+  el.style.left = `${item.x}%`;
+  el.style.top = `${item.y}%`;
+
+  el.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    if (!balloonGameActive || item.popped) return;
+    item.popped = true;
+    playDartPopSound(audioEngine.ctx, state.musicEnabled);
+
+    const fx = document.createElement('span');
+    fx.className = 'balloon-pop-fx';
+    fx.textContent = '💥';
+    fx.style.left = `${item.x}%`;
+    fx.style.top = `${item.y}%`;
+    dom.balloonBoard.appendChild(fx);
+    setTimeout(() => fx.remove(), 440);
+
+    el.remove();
+    balloonItems = balloonItems.filter((b) => b !== item);
+    balloonPoppedCount++;
+    if (dom.balloonScore) dom.balloonScore.textContent = `🎈 แตกแล้ว: ${balloonPoppedCount} / 7`;
+
+    if (balloonPoppedCount >= 7) {
+      stopBalloonGame(true);
+    } else if (balloonItems.length < 5) {
+      spawnBalloonTarget();
+    }
+  });
+
+  dom.balloonBoard.appendChild(el);
+  balloonItems.push(item);
+}
+
+function openBalloonGameDialog() {
+  if (!dom.dialogBalloonGame) return;
+  stopBalloonGame(false);
+  if (dom.balloonScore) dom.balloonScore.textContent = '🎈 แตกแล้ว: 0 / 7';
+  if (dom.balloonTimer) dom.balloonTimer.textContent = '⏱️ 15.0 วิ';
+  if (dom.balloonResultText) dom.balloonResultText.textContent = 'พร้อมล่ารางวัลตุ๊กตาหมีแล้วหรือยัง? 🎯';
+  if (dom.btnBalloonStart) dom.btnBalloonStart.textContent = '🎯 เริ่มปาโป่ง (5 💰)';
+  if (!dom.dialogBalloonGame.open) dom.dialogBalloonGame.showModal();
+}
+
+if (dom.dialogBalloonGame) {
+  dom.dialogBalloonGame.addEventListener('close', () => {
+    if (balloonGameActive) stopBalloonGame(true);
+  });
+}
+
+if (dom.btnBalloonStart) {
+  dom.btnBalloonStart.addEventListener('click', () => {
+    if (!socket || balloonGameActive) return;
+    unlockAndResumeAudio(false);
+    socket.emit('minigame:balloonStart', {}, (ack) => {
+      if (ack && ack.ok === false && ack.error === 'NOT_ENOUGH_COINS') {
+        showToast('💰 เหรียญไม่พอ! ปาโป่งต้องใช้ 5 เหรียญ — ไปว่ายน้ำเก็บเหรียญในสระได้เลย 🏊');
+        return;
+      }
+      balloonGameActive = true;
+      balloonPoppedCount = 0;
+      balloonTimeLeft = 15.0;
+      clearBalloonBoardTargets();
+      if (dom.balloonBoardOverlay) dom.balloonBoardOverlay.classList.add('hidden');
+      if (dom.balloonScore) dom.balloonScore.textContent = '🎈 แตกแล้ว: 0 / 7';
+      if (dom.balloonTimer) dom.balloonTimer.textContent = '⏱️ 15.0 วิ';
+
+      for (let i = 0; i < 6; i++) spawnBalloonTarget();
+
+      let lastAt = performance.now();
+      balloonTickTimer = setInterval(() => {
+        if (!balloonGameActive) return;
+        const now = performance.now();
+        const dtTick = Math.min(0.1, (now - lastAt) / 1000);
+        lastAt = now;
+        balloonTimeLeft = Math.max(0, balloonTimeLeft - dtTick);
+        if (dom.balloonTimer) dom.balloonTimer.textContent = `⏱️ ${balloonTimeLeft.toFixed(1)} วิ`;
+
+        for (const b of balloonItems) {
+          b.x += b.vx * dtTick;
+          b.y += b.vy * dtTick;
+          if (b.x < 10 || b.x > 90) { b.vx *= -1; b.x = Math.max(10, Math.min(90, b.x)); }
+          if (b.y < 16 || b.y > 84) { b.vy *= -1; b.y = Math.max(16, Math.min(84, b.y)); }
+          b.el.style.left = `${b.x}%`;
+          b.el.style.top = `${b.y}%`;
+        }
+        if (balloonTimeLeft <= 0) {
+          stopBalloonGame(true);
+        }
+      }, 40);
+    });
+  });
+}
+
+// ============================================================================
+// KRATHONG CONTEST LIVE VOTING (3 Entries on Red Carpet Stage)
+// ============================================================================
+
+function renderContestVoteUI() {
+  if (!dom.contestEntriesList) return;
+  const counts = state.contestVotes?.counts || { banana: 0, lotus: 0, bread: 0 };
+  const total = state.contestVotes?.total || 0;
+  if (dom.contestTotalVotes) {
+    dom.contestTotalVotes.textContent = `รวม ${total} โหวต`;
+  }
+  dom.contestEntriesList.replaceChildren();
+  CONTEST_ENTRIES.forEach((item) => {
+    const c = counts[item.id] || 0;
+    const pct = total > 0 ? Math.round((c / total) * 100) : 0;
+    const isVoted = state.myContestVote === item.id;
+
+    const card = document.createElement('div');
+    card.className = isVoted ? 'contest-entry-card is-voted' : 'contest-entry-card';
+
+    const top = document.createElement('div');
+    top.className = 'contest-entry-top';
+    const title = document.createElement('div');
+    title.className = 'contest-entry-title';
+    title.textContent = `${item.emoji} หมายเลข ${item.num}: ${item.name}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'contest-vote-btn';
+    btn.textContent = isVoted ? '✓ โหวตแล้ว' : '👍 โหวตใบนี้';
+    btn.addEventListener('click', () => {
+      if (!socket) return;
+      socket.emit('contest:vote', { entry: item.id }, (ack) => {
+        if (ack?.ok) {
+          state.myContestVote = item.id;
+          state.contestVotes = { counts: ack.counts, total: ack.total };
+          renderContestVoteUI();
+          showToast(`🪷 คุณโหวตให้ "${item.name}" แล้ว!`);
+        }
+      });
+    });
+    top.append(title, btn);
+
+    const desc = document.createElement('p');
+    desc.className = 'contest-entry-desc';
+    desc.textContent = item.desc;
+
+    const barWrap = document.createElement('div');
+    barWrap.className = 'contest-bar-wrap';
+    const barFill = document.createElement('div');
+    barFill.className = 'contest-bar-fill';
+    barFill.style.width = `${pct}%`;
+    barWrap.appendChild(barFill);
+
+    const meta = document.createElement('div');
+    meta.className = 'contest-votes-meta';
+    meta.innerHTML = `<span>${c} คะแนน</span><span>${pct}%</span>`;
+
+    card.append(top, desc, barWrap, meta);
+    dom.contestEntriesList.appendChild(card);
+  });
+}
+
+function openContestVoteDialog() {
+  if (!dom.dialogContestVote) return;
+  renderContestVoteUI();
+  if (!dom.dialogContestVote.open) dom.dialogContestVote.showModal();
+}
+
+// ============================================================================
+// LIVE ROOM LEADERBOARD (Top 3 Hearts & Top 3 Coins)
+// ============================================================================
+
+function renderLeaderboardList(olEl, items, unitSuffix) {
+  if (!olEl) return;
+  olEl.replaceChildren();
+  const medals = ['🥇', '🥈', '🥉'];
+  if (!Array.isArray(items) || items.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'lb-row';
+    li.textContent = 'ยังไม่มีข้อมูลในห้องนี้';
+    olEl.appendChild(li);
+    return;
+  }
+  items.forEach((row, idx) => {
+    const li = document.createElement('li');
+    li.className = 'lb-row';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'lb-row-name';
+    nameEl.textContent = `${medals[idx] || `${idx + 1}.`} ${row.nickname}`;
+    const valEl = document.createElement('span');
+    valEl.className = 'lb-row-val';
+    valEl.textContent = `${row.value} ${unitSuffix}`;
+    li.append(nameEl, valEl);
+    olEl.appendChild(li);
+  });
+}
+
+function openLeaderboardDialog() {
+  if (!dom.dialogLeaderboard || !socket) return;
+  socket.emit('leaderboard:get', {}, (ack) => {
+    if (!ack?.ok) return;
+    renderLeaderboardList(
+      dom.lbHeartsList,
+      (ack.topHearts || []).map((p) => ({ nickname: p.nickname, value: p.hearts })),
+      '❤️'
+    );
+    renderLeaderboardList(
+      dom.lbCoinsList,
+      (ack.topCoins || []).map((p) => ({ nickname: p.nickname, value: p.coins })),
+      '💰'
+    );
+    if (!dom.dialogLeaderboard.open) dom.dialogLeaderboard.showModal();
+  });
+}
+
+if (dom.btnLeaderboard) {
+  dom.btnLeaderboard.addEventListener('click', openLeaderboardDialog);
 }
 
 // ============================================================================
@@ -5619,6 +6755,12 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyH' && !e.repeat) {
     triggerSelfWave();
   }
+  if (!e.repeat && !state.photoMode) {
+    if (code === 'Digit1') triggerLocalEmote('wave');
+    else if (code === 'Digit2') triggerLocalEmote('ramwong');
+    else if (code === 'Digit3') triggerLocalEmote('cheer');
+    else if (code === 'Digit4') triggerLocalEmote('wai');
+  }
   if (code === 'KeyV' && !e.repeat && !state.photoMode) {
     state.voiceLockedOn = false;
     setPushToTalk(true);
@@ -5637,11 +6779,31 @@ let camDragging = false;
 let camPointerId = null;
 let camLastX = 0;
 let camLastY = 0;
+let camDownX = 0;
+let camDownY = 0;
 const activeCanvasPointers = new Map();
 let lastPinchDist = null;
+const avatarRaycaster = new THREE.Raycaster();
+const avatarPointerNdc = new THREE.Vector2();
+
+// Prevent right-click context menu on PC from stealing focus and causing stuck WASD auto-walk!
+window.addEventListener('contextmenu', (e) => {
+  if (!state.joined) return;
+  const tag = e.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  e.preventDefault();
+  state.keys.clear();
+  camDragging = false;
+  camPointerId = null;
+});
 
 dom.worldCanvas.addEventListener('pointerdown', (e) => {
   if (!state.joined || state.photoMode) return;
+  // On desktop mouse, ONLY left-click drags the camera or picks players (ignore right/middle click!)
+  if (e.pointerType === 'mouse' && e.button !== 0) {
+    e.preventDefault();
+    return;
+  }
   activeCanvasPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (activeCanvasPointers.size === 2) {
@@ -5657,6 +6819,8 @@ dom.worldCanvas.addEventListener('pointerdown', (e) => {
   camPointerId = e.pointerId;
   camLastX = e.clientX;
   camLastY = e.clientY;
+  camDownX = e.clientX;
+  camDownY = e.clientY;
 });
 
 window.addEventListener('pointermove', (e) => {
@@ -5668,6 +6832,7 @@ window.addEventListener('pointermove', (e) => {
     const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     const delta = lastPinchDist - dist;
     lastPinchDist = dist;
+    state.fireworkViewUntil = 0;
     state.cameraOrbit.distance = THREE.MathUtils.clamp(
       state.cameraOrbit.distance + delta * 0.025,
       4.0,
@@ -5681,22 +6846,69 @@ window.addEventListener('pointermove', (e) => {
   const dy = e.clientY - camLastY;
   camLastX = e.clientX;
   camLastY = e.clientY;
+  if (Math.hypot(e.clientX - camDownX, e.clientY - camDownY) > 6) {
+    state.fireworkViewUntil = 0;
+  }
   state.cameraOrbit.yaw -= dx * 0.0065;
+  // Allow looking UP toward the night sky (-0.52 rad) to watch fireworks & sky lanterns!
   state.cameraOrbit.pitch = THREE.MathUtils.clamp(
     state.cameraOrbit.pitch + dy * 0.005,
-    0.1,
+    -0.52,
     1.15
   );
 });
 
+function pickRemotePlayerAtScreenPoint(clientX, clientY) {
+  if (!state.joined || state.photoMode || isTypingOrModalOpen()) return null;
+  const rect = dom.worldCanvas.getBoundingClientRect();
+  avatarPointerNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  avatarPointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  avatarRaycaster.setFromCamera(avatarPointerNdc, camera);
+
+  const roots = [];
+  for (const [id, p] of state.players) {
+    if (id !== state.selfId && p.group) {
+      roots.push(p.group);
+    }
+  }
+  if (roots.length === 0) return null;
+  const hits = avatarRaycaster.intersectObjects(roots, true);
+  if (hits.length === 0) return null;
+
+  let obj = hits[0].object;
+  while (obj) {
+    for (const [id, p] of state.players) {
+      if (id !== state.selfId && p.group === obj) {
+        return id;
+      }
+    }
+    obj = obj.parent;
+  }
+  return null;
+}
+
 function releaseCanvasPointer(e) {
+  const wasCamPointer = e.pointerId === camPointerId;
   activeCanvasPointers.delete(e.pointerId);
   if (activeCanvasPointers.size < 2) {
     lastPinchDist = null;
   }
-  if (e.pointerId === camPointerId) {
+  if (wasCamPointer) {
+    const movedDist = Math.hypot(e.clientX - camDownX, e.clientY - camDownY);
     camDragging = false;
     camPointerId = null;
+    // Short click/tap on canvas -> check if user clicked a friend's 3D avatar!
+    if (
+      movedDist < 7 &&
+      e.type === 'pointerup' &&
+      e.target === dom.worldCanvas &&
+      (e.pointerType !== 'mouse' || e.button === 0)
+    ) {
+      const pickedId = pickRemotePlayerAtScreenPoint(e.clientX, e.clientY);
+      if (pickedId) {
+        openPlayerSocialDialog(pickedId);
+      }
+    }
   }
 }
 window.addEventListener('pointerup', releaseCanvasPointer);
@@ -5707,6 +6919,7 @@ dom.worldCanvas.addEventListener(
   (e) => {
     if (!state.joined || state.photoMode) return;
     e.preventDefault();
+    state.fireworkViewUntil = 0;
     state.cameraOrbit.distance = THREE.MathUtils.clamp(
       state.cameraOrbit.distance + e.deltaY * 0.006,
       4.0,
@@ -5777,7 +6990,8 @@ const camTargetVec = new THREE.Vector3();
 const camDesiredVec = new THREE.Vector3();
 let lastNetSendAt = 0;
 let lastMinimapAt = 0;
-const lastNetSent = { x: NaN, z: NaN, rotY: NaN, isMoving: false, isRunning: false };
+const lastNetSent = { x: NaN, y: NaN, z: NaN, rotY: NaN, isMoving: false, isRunning: false, isSwimming: false };
+let swimToastShown = false;
 
 function updateLocalPlayer(dt) {
   const self = state.players.get(state.selfId);
@@ -5804,10 +7018,18 @@ function updateLocalPlayer(dt) {
     isMoving &&
     (state.keys.has('ShiftLeft') || state.keys.has('ShiftRight') || state.sprintTouch);
 
-  // Moving automatically stands the player up from a concert chair!
+  // Moving automatically stands the player up from a concert chair & stops loop dances!
   if (isMoving && state.seatedChairId) {
     standUpFromChair();
   }
+  if (isMoving && state.activeEmote) {
+    state.activeEmote = null;
+    if (self.setEmote) self.setEmote(null);
+    updateEmoteButtonsUI();
+    if (socket) socket.emit('player:emote', { emote: null });
+  }
+
+  const wasSwimming = Boolean(self.isSwimming);
 
   if (isMoving) {
     const nx = moveX / Math.max(1, inputLen);
@@ -5819,7 +7041,7 @@ function updateLocalPlayer(dt) {
     const worldDirX = nx * cosY + nz * sinY;
     const worldDirZ = -nx * sinY + nz * cosY;
 
-    const speed = isRunning ? 8.2 : 4.5;
+    const speed = wasSwimming ? (isRunning ? 5.2 : 3.5) : isRunning ? 8.2 : 4.5;
     self.currentPos.x += worldDirX * speed * dt;
     self.currentPos.z += worldDirZ * speed * dt;
 
@@ -5835,8 +7057,75 @@ function updateLocalPlayer(dt) {
 
   self.isMoving = isMoving;
   self.isRunning = isRunning;
+
+  // Step feet cleanly onto elevated floors & swim chest-deep in the Loy Krathong pond!
+  let targetGroundY = 0;
+  let yLerpSpeed = 16;
+  const px = self.currentPos.x;
+  const pz = self.currentPos.z;
+  const inWater = isInSwimmingPond(px, pz);
+
+  if (px >= -26.6 && px <= -25.0 && pz >= -57.35 && pz <= -55.65) {
+    // Smooth 5-step climb along Concert Stage back-left staircase (Z: -57.25 -> -55.80 maps Y: 0 -> 1.35m)
+    const tStair = THREE.MathUtils.clamp((pz - -57.25) / (-55.8 - -57.25), 0, 1);
+    targetGroundY = tStair * 1.35;
+    yLerpSpeed = 28;
+  } else if (px >= -27.1 && px <= -14.9 && pz >= -55.85 && pz <= -49.1 && self.currentPos.y >= 0.62) {
+    // Standing/walking on top of the Concert Stage deck!
+    targetGroundY = 1.35;
+    yLerpSpeed = 24;
+  } else if (isOnWoodenPier(px, pz)) {
+    // Wooden Krathong Pier deck (prevents foot sinking on pier!)
+    targetGroundY = PIER_BOUNDS.floorY;
+    yLerpSpeed = 22;
+  } else if (
+    Math.hypot(px - LANTERN_PLAZA_CONFIG.x, pz - LANTERN_PLAZA_CONFIG.z) <= LANTERN_PLAZA_CONFIG.radius
+  ) {
+    // Sky Lantern Plaza raised circular podium (prevents foot sinking!)
+    targetGroundY = 0.185;
+    yLerpSpeed = 20;
+  } else if (
+    px >= UBOSOT_BOUNDS.minX &&
+    px <= UBOSOT_BOUNDS.maxX &&
+    pz >= UBOSOT_BOUNDS.minZ &&
+    pz <= UBOSOT_BOUNDS.maxZ
+  ) {
+    targetGroundY = UBOSOT_BOUNDS.floorY;
+  } else if (px >= 10.2 && px <= 19.8 && pz >= 5.3 && pz <= 8.7) {
+    // Krathong Contest raised red carpet plinth
+    targetGroundY = 0.14;
+  } else if (
+    px >= SALA_BOUNDS.minX &&
+    px <= SALA_BOUNDS.maxX &&
+    pz >= SALA_BOUNDS.minZ &&
+    pz <= SALA_BOUNDS.maxZ
+  ) {
+    targetGroundY = SALA_BOUNDS.floorY;
+  } else if (px >= 24.9 && px <= 32.8 && pz >= -27.5 && pz <= -25.2) {
+    // Photo Booth green turf platform
+    targetGroundY = 0.08;
+  } else if (inWater) {
+    // Floating / swimming chest-deep in the Loy Krathong pond!
+    targetGroundY = -0.68;
+    yLerpSpeed = 12;
+  }
+
+  self.isSwimming = inWater;
+  if (self.setSwimming) self.setSwimming(inWater);
+  if (inWater && !wasSwimming && !swimToastShown) {
+    swimToastShown = true;
+    showToast('🏊 ลงว่ายน้ำเก็บเหรียญในสระแล้ว! ว่ายชนเหรียญทองได้เลย 💰');
+  }
+
+  self.currentPos.y += (targetGroundY - self.currentPos.y) * Math.min(1, dt * yLerpSpeed);
+
   self.group.position.copy(self.currentPos);
   self.group.rotation.y = self.currentRotY;
+
+  // Auto-look-up camera for the fireworks launcher (immediately yields if player moves or drags camera!)
+  if (isMoving && state.fireworkViewUntil) {
+    state.fireworkViewUntil = 0;
+  }
 
   if (state.photoMode) {
     // Auto-framed front portrait camera facing the "#งานวัดไฮโซ โอ้โห ท่าช้าง" bamboo booth
@@ -5858,15 +7147,27 @@ function updateLocalPlayer(dt) {
     camera.position.lerp(camDesiredVec, Math.min(1, dt * 9));
     camera.lookAt(camTargetVec);
   } else {
-    // Third-person camera follow (reuses vectors to avoid per-frame GC churn)
+    // Smoothly tilt upward toward northern sky right after launching fireworks
+    if (state.fireworkViewUntil && performance.now() < state.fireworkViewUntil && !camDragging) {
+      let yawDiff = 0 - state.cameraOrbit.yaw;
+      while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
+      while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
+      state.cameraOrbit.yaw += yawDiff * Math.min(1, dt * 3.8);
+      state.cameraOrbit.pitch += (-0.36 - state.cameraOrbit.pitch) * Math.min(1, dt * 3.2);
+      state.cameraOrbit.distance += (9.6 - state.cameraOrbit.distance) * Math.min(1, dt * 3.0);
+    }
+
+    // Third-person camera follow (supports pitching UP with negative pitch to view fireworks & sky lanterns!)
     const { yaw, pitch, distance } = state.cameraOrbit;
+    const skyLookLift = pitch < 0 ? -Math.sin(pitch) * distance * 1.45 : 0;
+    const baseTargetY = self.currentPos.y + Math.max(0.75, (self.headY || 1.45) * 0.72);
     camTargetVec.set(
       self.currentPos.x,
-      self.currentPos.y + Math.max(0.75, (self.headY || 1.45) * 0.72),
+      baseTargetY + skyLookLift,
       self.currentPos.z
     );
     const camX = camTargetVec.x + Math.sin(yaw) * Math.cos(pitch) * distance;
-    const camY = Math.max(0.9, camTargetVec.y + Math.sin(pitch) * distance);
+    const camY = Math.max(0.75, baseTargetY + Math.sin(pitch) * distance);
     const camZ = camTargetVec.z + Math.cos(yaw) * Math.cos(pitch) * distance;
 
     camDesiredVec.set(camX, camY, camZ);
@@ -5914,7 +7215,7 @@ function updateLocalPlayer(dt) {
         vendor: nearVendor,
         label: alreadyHolding
           ? `วาง ${propMeta.emoji} ${propMeta.name}`
-          : `รับ ${propMeta.emoji} ${propMeta.name} (${nearVendor.tpl.signTitle})`
+          : `ซื้อ ${propMeta.emoji} ${propMeta.name} (5 💰 • ${nearVendor.tpl.signTitle})`
       };
     }
   }
@@ -5930,34 +7231,40 @@ function updateLocalPlayer(dt) {
     dom.interactWrap.classList.add('hidden');
   }
 
-  // Send delta movement update at 10 Hz ONLY when position, rotation, or motion state changed
+  // Send delta movement update at ~8.3 Hz (120ms) ONLY when position, rotation, or motion state changed
   const now = performance.now();
-  if (socket && now - lastNetSendAt > 100) {
+  if (socket && now - lastNetSendAt > 120) {
     const nx = Number(self.currentPos.x.toFixed(2));
+    const ny = Number(self.currentPos.y.toFixed(2));
     const nz = Number(self.currentPos.z.toFixed(2));
     const nr = Number(self.currentRotY.toFixed(2));
     const changed =
       Math.abs(nx - lastNetSent.x) > 0.02 ||
+      Math.abs(ny - (lastNetSent.y || 0)) > 0.03 ||
       Math.abs(nz - lastNetSent.z) > 0.02 ||
       Math.abs(nr - lastNetSent.rotY) > 0.03 ||
       self.isMoving !== lastNetSent.isMoving ||
       self.isRunning !== lastNetSent.isRunning ||
+      Boolean(self.isSwimming) !== lastNetSent.isSwimming ||
       Number.isNaN(lastNetSent.x);
 
     if (changed) {
       lastNetSendAt = now;
       lastNetSent.x = nx;
+      lastNetSent.y = ny;
       lastNetSent.z = nz;
       lastNetSent.rotY = nr;
       lastNetSent.isMoving = self.isMoving;
       lastNetSent.isRunning = self.isRunning;
+      lastNetSent.isSwimming = Boolean(self.isSwimming);
       socket.emit('player:move', {
         x: nx,
-        y: 0,
+        y: ny,
         z: nz,
         rotY: nr,
         isMoving: self.isMoving,
-        isRunning: self.isRunning
+        isRunning: self.isRunning,
+        isSwimming: Boolean(self.isSwimming)
       });
     }
   }
@@ -5966,24 +7273,60 @@ function updateLocalPlayer(dt) {
   updateProximityVoiceVolumes();
 }
 
+const _remoteCrowdList = [];
+
 function updatePlayersAnimationAndLabels(dt, elapsed) {
   const nowPerf = performance.now();
+  const low = state.lowGraphics;
+  const maxVisibleRemote = low ? 24 : 38;
+  const maxRenderDist = low ? 48 : 68;
+  const maxRenderDistSq = maxRenderDist * maxRenderDist;
+  const maxLabelDist = low ? 32 : 42;
+  const doHalfRate = frameCounter % 2 === 0;
+  const camPos = camera.position;
 
+  // 1) Collect & rank remote players by distance so 50-player rooms stay 45-60 FPS!
+  _remoteCrowdList.length = 0;
   for (const [id, p] of state.players) {
-    if (id !== state.selfId) {
-      p.currentPos.lerp(p.targetPos, Math.min(1, dt * 12));
-      let diff = p.targetRotY - p.currentRotY;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      p.currentRotY += diff * Math.min(1, dt * 12);
-      p.group.position.copy(p.currentPos);
-      p.group.rotation.y = p.currentRotY;
-    }
+    if (id === state.selfId) continue;
+    p.currentPos.lerp(p.targetPos, Math.min(1, dt * 12));
+    let diff = p.targetRotY - p.currentRotY;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    p.currentRotY += diff * Math.min(1, dt * 12);
+    p.group.position.copy(p.currentPos);
+    p.group.rotation.y = p.currentRotY;
 
-    // Distance-culled AnimationMixer update (skip faraway remote avatars >42m for mobile FPS)
-    const distToCam = p.currentPos.distanceTo(camera.position);
-    if (p.updateAnim && (id === state.selfId || distToCam <= 42)) {
-      p.updateAnim(dt, p.isMoving, p.isRunning);
+    const dx = p.currentPos.x - camPos.x;
+    const dz = p.currentPos.z - camPos.z;
+    p._camDistSq = dx * dx + dz * dz;
+    _remoteCrowdList.push(p);
+  }
+  if (_remoteCrowdList.length > maxVisibleRemote) {
+    _remoteCrowdList.sort((a, b) => a._camDistSq - b._camDistSq);
+  }
+  for (let i = 0; i < _remoteCrowdList.length; i++) {
+    const p = _remoteCrowdList[i];
+    const shouldShow = i < maxVisibleRemote && p._camDistSq <= maxRenderDistSq;
+    p._crowdVisible = shouldShow;
+    if (p.group.visible !== shouldShow) {
+      p.group.visible = shouldShow;
+    }
+  }
+
+  // 2) Update AnimationMixers with tiered distance LOD & project nameplates cleanly
+  for (const [id, p] of state.players) {
+    const isSelf = id === state.selfId;
+    const visible = isSelf ? true : p._crowdVisible !== false;
+
+    if (visible && p.updateAnim) {
+      if (isSelf) {
+        p.updateAnim(dt, p.isMoving, p.isRunning);
+      } else if (p._camDistSq <= 28 * 28) {
+        p.updateAnim(dt, p.isMoving, p.isRunning);
+      } else if (p._camDistSq <= 48 * 48 && doHalfRate) {
+        p.updateAnim(dt * 2, p.isMoving, p.isRunning);
+      }
     }
 
     // Chat bubble expiry
@@ -5992,13 +7335,23 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
       p.chatExpireAt = 0;
     }
 
-    // Project 3D head label to screen (dynamically above tall/medium/chibi head)
+    if (!visible) {
+      if (p.labelEls.wrap._vis !== false) {
+        p.labelEls.wrap.style.display = 'none';
+        p.labelEls.wrap._vis = false;
+      }
+      continue;
+    }
+
+    // Update self nameplate at 60Hz, remote nameplates at 30Hz (cuts DOM layout work in half!)
+    if (!isSelf && !doHalfRate) continue;
+
     const labelOffset = (p.headY || 1.45) + 0.25;
     tempVec.set(p.currentPos.x, p.currentPos.y + labelOffset, p.currentPos.z);
-    const dist = tempVec.distanceTo(camera.position);
+    const dist = tempVec.distanceTo(camPos);
     tempVec.project(camera);
 
-    if (tempVec.z > 1 || dist > 48) {
+    if (tempVec.z > 1 || dist > maxLabelDist) {
       if (p.labelEls.wrap._vis !== false) {
         p.labelEls.wrap.style.display = 'none';
         p.labelEls.wrap._vis = false;
@@ -6025,10 +7378,11 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
     item.mesh.position.set(px, 0.08 + bob, pz);
     item.mesh.rotation.y = elapsed * 0.25;
 
+    if (!doHalfRate) continue;
     tempVec.set(px, 0.65 + bob, pz);
-    const dist = tempVec.distanceTo(camera.position);
+    const dist = tempVec.distanceTo(camPos);
     tempVec.project(camera);
-    if (tempVec.z > 1 || dist > 36) {
+    if (tempVec.z > 1 || dist > 34) {
       if (item.labelEl._vis !== false) {
         item.labelEl.style.display = 'none';
         item.labelEl._vis = false;
@@ -6077,10 +7431,11 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
       item.mesh.userData.flame.scale.set(0.85 * fPulse, 1.35 * fPulse, 0.85 * fPulse);
     }
 
+    if (!doHalfRate) continue;
     tempVec.set(px, py + 1.25, pz);
-    const dist = tempVec.distanceTo(camera.position);
+    const dist = tempVec.distanceTo(camPos);
     tempVec.project(camera);
-    if (tempVec.z > 1 || dist > 48 || remaining < 4) {
+    if (tempVec.z > 1 || dist > 44 || remaining < 4) {
       if (item.labelEl._vis !== false) {
         item.labelEl.style.display = 'none';
         item.labelEl._vis = false;
@@ -6158,6 +7513,62 @@ function updateAtmosphere(dt, elapsed) {
   }
   if (concertChairsState && runHalfRate) {
     updateConcertAudience(concertChairsState, camera, elapsed);
+  }
+  if (fireworksState) {
+    updateFireworks(scene, fireworksState, dt);
+  }
+  if (fairGamesState && runHalfRate) {
+    updateFairGames(fairGamesState, elapsed);
+  }
+  const selfForWorld = state.joined ? state.players.get(state.selfId) : null;
+  if (pondCoinsState) {
+    updatePondCoins(pondCoinsState, selfForWorld, elapsed, (coin) => {
+      if (!socket) return;
+      socket.emit('coin:collect', { coinId: coin.id }, (ack) => {
+        if (ack?.ok) {
+          playCoinCollectSound(audioEngine.ctx, state.musicEnabled, ack.value);
+          showToast(`💰 เก็บเหรียญในสระ +${ack.value} เหรียญ! (คงเหลือ ${ack.coins} 💰)`);
+        }
+      });
+    });
+  }
+  if (hauntedForestState && selfForWorld) {
+    updateHauntedForest(hauntedForestState, selfForWorld.currentPos, scene, dt, elapsed, {
+      audioCtx: audioEngine.ctx,
+      soundEnabled: state.musicEnabled,
+      lowGraphics: state.lowGraphics,
+      onGhostAlert: (msg) => showToast(msg),
+      onHorrorOverlay: (opacity, shake) => {
+        if (!dom.horrorVignette) return;
+        const clamped = Math.max(0, Math.min(1, opacity));
+        dom.horrorVignette.classList.toggle('hidden', clamped <= 0.01);
+        dom.horrorVignette.style.opacity = String(Number(clamped.toFixed(2)));
+        dom.horrorVignette.classList.toggle('is-shaking', Boolean(shake));
+      },
+      onJumpscare: () => {
+        if (!dom.ghostJumpscare) return;
+        dom.ghostJumpscare.classList.remove('hidden');
+        void dom.ghostJumpscare.offsetWidth;
+        setTimeout(() => {
+          if (dom.ghostJumpscare) dom.ghostJumpscare.classList.add('hidden');
+        }, 690);
+      },
+      onGhostBanished: (inUbosot) => {
+        if (inUbosot) {
+          playTempleBell();
+          if (dom.holyShieldFlash) {
+            dom.holyShieldFlash.classList.remove('hidden');
+            void dom.holyShieldFlash.offsetWidth;
+            setTimeout(() => {
+              if (dom.holyShieldFlash) dom.holyShieldFlash.classList.add('hidden');
+            }, 780);
+          }
+          showToast('🙏 พุทธคุณเขตพระอุโบสถคุ้มครอง! วิญญาณร้ายสลายกลับเข้าป่าไปแล้ว ✨');
+        } else {
+          showToast('😮‍💨 หนีออกจากป่าช้าหลังโบสถ์พ้นแล้ว! ผีหายกลับเข้าไปในความมืด...');
+        }
+      }
+    });
   }
   updateMobileZoneCulling();
 }
@@ -6280,6 +7691,18 @@ async function bootstrap() {
   photoBoothState = buildPhotoBooth(scene, addCollisionBox, state.lowGraphics);
   mergeStaticMeshesByMaterial(photoBoothState.root, [], false, [photoBoothState.photoLight]);
   concertChairsState = buildConcertChairs(scene, addCollisionBox);
+  buildEsiimsiStand(scene, addCollisionBox);
+  fireworksState = buildFireworksStation(scene, addCollisionBox);
+  mergeStaticMeshesByMaterial(fireworksState.root, [], false, []);
+  pondCoinsState = buildPondCoinSystem(scene);
+  hauntedForestState = buildHauntedForest(scene, addCollisionBox);
+  fairGamesState = buildFairGames(scene, addCollisionBox);
+  mergeStaticMeshesByMaterial(
+    fairGamesState.root,
+    [],
+    false,
+    fairGamesState.boothBalloons.map((b) => b.mesh)
+  );
   setupWorldCollisions();
 
   // Apply graphics mode AFTER all procedural builders exist so mobile gets fast Lambert shaders on EVERYTHING!

@@ -15,6 +15,8 @@ const io = new Server(server, {
     origin: '*',
     methods: ['GET', 'POST']
   },
+  perMessageDeflate: false,
+  httpCompression: false,
   pingInterval: 25000,
   pingTimeout: 20000
 });
@@ -138,18 +140,58 @@ function clampFinite(val, min, max, fallback) {
 }
 
 // ============================================================================
-// MULTI-ROOM SCALING STATE (4 Rooms x 35 Players = 140+ Concurrent Players)
+// MULTI-ROOM SCALING STATE (4 Rooms x 50 Players = 200 Concurrent Players)
 // ============================================================================
 
-const MAX_PLAYERS_PER_ROOM = 35;
+const MAX_PLAYERS_PER_ROOM = 50;
 const MAX_KRATHONGS = 60;
 const MAX_RELEASED_LANTERNS = 40;
 const LANTERN_LIFETIME_MS = 90000;
 const MAX_RECENT_CHATS = 30;
 const VALID_KRATHONG_TYPES = new Set(['banana', 'lotus', 'bread']);
-const VALID_PROP_TYPES = new Set(['meatball', 'cotton_candy', 'drink', 'glowstick', 'balloon']);
+const VALID_PROP_TYPES = new Set(['meatball', 'cotton_candy', 'drink', 'glowstick', 'balloon', 'teddy']);
 const EDIBLE_PROP_TYPES = new Set(['meatball', 'cotton_candy', 'drink']);
 const VALID_LANTERN_COLORS = new Set(['gold', 'pink', 'white']);
+const VALID_EMOTES = new Set(['wave', 'ramwong', 'cheer', 'wai']);
+const VALID_CONTEST_ENTRIES = new Set(['banana', 'lotus', 'bread']);
+const BALLOON_GAME_PRICE = 5;
+const FESTIVAL_TIPS = [
+  '💡 รู้ไหม? คลิกที่ตัวเพื่อนหรือป้ายชื่อเพื่อน เพื่อส่งหัวใจ ❤️ หรือมอบเหรียญ 💰 ให้กันได้นะ!',
+  '💡 เหรียญหมดไม่ต้องห่วง! เดินลงไปว่ายน้ำเก็บเหรียญทองในสระลอยกระทงได้เลย 🏊',
+  '💡 แวะไปเล่นซุ้มปาโป่งชิงรางวัล 🎈 (ฝั่งซ้ายถนนทางเข้า) ปาแตก 7 ลูกรับ +15 เหรียญ และตุ๊กตาหมีงานวัด 🧸!',
+  '💡 ลองขึ้นบันไดหลังเวทีคอนเสิร์ตไปเต้นรำวง 💃 หรือโยกเชียร์ 🕺 กับเพื่อน ๆ หน้าเวทีได้เลย!',
+  '💡 แวะโหวตกระทงสวยประจำงานได้ที่แท่นพรมแดงประกวดกระทง 🪷 และกดดูอันดับขวัญใจงานวัดได้ที่ปุ่ม 👑 อันดับ!',
+  '💡 เสี่ยงเซียมซีที่ศาลาพระพุทธรูป 🎋 ถ้าได้ดวง "ดีมาก" รับโบนัสพิเศษ +5 เหรียญทันที!',
+  '💡 คำเตือน! อย่าเผลอเดินลึกเข้าไปในป่าช้าหลังโบสถ์ยามวิกาล 👻 (ถ้าเจอดีให้รีบวิ่งเข้าเขตพระอุโบสถ!)'
+];
+const FIREWORK_STYLE_NAMES = {
+  gold: '🌕 พลุทองมงคล',
+  rainbow: '🌈 พลุสายรุ้ง',
+  heart: '💖 พลุสีชมพู-หัวใจ',
+  finale: '🎆 พลุชุดใหญ่ 5 นัด'
+};
+const FIREWORK_PRICES = { gold: 10, rainbow: 10, heart: 10, finale: 15 };
+const STARTING_COINS = 20;
+const PROP_PRICE = 5;
+const LANTERN_PRICE = 5;
+const MAX_POND_COINS = 16;
+const TARGET_POND_COINS = 12;
+
+function createRandomPondCoin(x = null, z = null, forcedValue = null) {
+  const cx = x !== null ? clampFinite(x, 38.2, 54.0, 44) : Number((38.4 + Math.random() * 15.2).toFixed(2));
+  const cz = z !== null ? clampFinite(z, -25.8, 2.0, -12) : Number((-25.6 + Math.random() * 27.2).toFixed(2));
+  let val = forcedValue;
+  if (!val) {
+    const roll = Math.random();
+    val = roll < 0.14 ? 5 : roll < 0.52 ? 2 : 1;
+  }
+  return {
+    id: `coin-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    x: cx,
+    z: cz,
+    value: val
+  };
+}
 const AUDIO_DIR = path.join(__dirname, 'public', 'audio');
 const FESTIVAL_AUDIO_DIR = path.join(__dirname, 'public', 'audio-festival');
 const AUDIO_EXT_RE = /\.(mp3|ogg|m4a|wav)$/i;
@@ -206,6 +248,10 @@ const ROOM_DEFS = [
 
 const rooms = new Map();
 for (const def of ROOM_DEFS) {
+  const initialCoins = [];
+  for (let i = 0; i < TARGET_POND_COINS; i++) {
+    initialCoins.push(createRandomPondCoin());
+  }
   rooms.set(def.id, {
     id: def.id,
     name: def.name,
@@ -213,9 +259,41 @@ for (const def of ROOM_DEFS) {
     dirtyMoves: new Map(),
     floatedKrathongs: [],
     releasedLanterns: [],
+    pondCoins: initialCoins,
+    contestVotes: new Map(),
+    tipIndex: 0,
     recentChats: [],
     stageTrack: createInitialStageTrack()
   });
+}
+
+function getContestSummary(room) {
+  const counts = { banana: 0, lotus: 0, bread: 0 };
+  if (room?.contestVotes) {
+    for (const entry of room.contestVotes.values()) {
+      if (Object.prototype.hasOwnProperty.call(counts, entry)) {
+        counts[entry]++;
+      }
+    }
+  }
+  const total = counts.banana + counts.lotus + counts.bread;
+  return { counts, total };
+}
+
+function getRoomLeaderboard(room) {
+  const list = Array.from(room.players.values()).map((p) => ({
+    id: p.id,
+    nickname: p.nickname,
+    hearts: p.hearts || 0,
+    coins: p.coins || 0
+  }));
+  const topHearts = [...list]
+    .sort((a, b) => b.hearts - a.hearts || b.coins - a.coins)
+    .slice(0, 3);
+  const topCoins = [...list]
+    .sort((a, b) => b.coins - a.coins || b.hearts - a.hearts)
+    .slice(0, 3);
+  return { topHearts, topCoins };
 }
 
 function getRoomForSocket(socket) {
@@ -320,7 +398,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 // ============================================================================
-// 10 HZ BATCHED MOVEMENT TICK PER ROOM (Drops server CPU & packet load >90%)
+// ~8.3 HZ (120ms) BATCHED MOVEMENT TICK PER ROOM (Smooth & low CPU for 50/room)
 // ============================================================================
 
 setInterval(() => {
@@ -330,7 +408,36 @@ setInterval(() => {
     room.dirtyMoves.clear();
     io.to(room.id).emit('players:batch', updates);
   }
-}, 100);
+}, 120);
+
+// Auto-replenish pond coins every 6 seconds so swimmers always have coins to collect
+setInterval(() => {
+  for (const room of rooms.values()) {
+    if (room.players.size === 0) continue;
+    if (room.pondCoins.length < TARGET_POND_COINS) {
+      const coin = createRandomPondCoin();
+      room.pondCoins.push(coin);
+      io.to(room.id).emit('coin:spawned', coin);
+    }
+  }
+}, 6000);
+
+// Broadcast rotating helpful festival tips to active rooms every 75 seconds
+setInterval(() => {
+  for (const room of rooms.values()) {
+    if (room.players.size === 0) continue;
+    const tip = FESTIVAL_TIPS[room.tipIndex % FESTIVAL_TIPS.length];
+    room.tipIndex++;
+    pushChat(room, {
+      id: `tip-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      senderId: 'system',
+      senderName: 'เคล็ดลับงานวัด',
+      text: tip,
+      type: 'system',
+      timestamp: Date.now()
+    });
+  }
+}, 75000);
 
 // ============================================================================
 // SOCKET.IO MULTIPLAYER HANDLERS
@@ -374,10 +481,18 @@ io.on('connection', (socket) => {
       rotY: Math.PI,
       isMoving: false,
       isRunning: false,
+      isSwimming: false,
       heldKrathong: null,
       heldProp: null,
       propBites: 3,
       seatedChairId: null,
+      coins: STARTING_COINS,
+      hearts: 0,
+      headAccessory: null,
+      activeEmote: null,
+      balloonSession: null,
+      lastHeartSentAt: 0,
+      lastEsiimsiBonusAt: 0,
       isSpeaking: false
     };
 
@@ -391,7 +506,8 @@ io.on('connection', (socket) => {
         selfId: socket.id,
         roomId: room.id,
         roomName: room.name,
-        roomMax: MAX_PLAYERS_PER_ROOM
+        roomMax: MAX_PLAYERS_PER_ROOM,
+        coins: playerState.coins
       });
     }
 
@@ -406,9 +522,12 @@ io.on('connection', (socket) => {
       roomId: room.id,
       roomName: room.name,
       roomMax: MAX_PLAYERS_PER_ROOM,
+      coins: playerState.coins,
       players: Array.from(room.players.values()),
       krathongs: room.floatedKrathongs,
       lanterns: room.releasedLanterns,
+      pondCoins: room.pondCoins,
+      contestSummary: getContestSummary(room),
       recentChats: room.recentChats,
       stageTracks,
       stageTrack: room.stageTrack,
@@ -438,6 +557,7 @@ io.on('connection', (socket) => {
     player.rotY = clampFinite(payload.rotY, -Math.PI * 4, Math.PI * 4, player.rotY);
     player.isMoving = Boolean(payload.isMoving);
     player.isRunning = Boolean(payload.isRunning);
+    player.isSwimming = Boolean(payload.isSwimming);
     if (player.isMoving && player.seatedChairId) {
       player.seatedChairId = null;
       socket.to(room.id).emit('player:sat', { id: socket.id, chairId: null });
@@ -451,7 +571,8 @@ io.on('connection', (socket) => {
       z: player.z,
       rotY: player.rotY,
       isMoving: player.isMoving,
-      isRunning: player.isRunning
+      isRunning: player.isRunning,
+      isSwimming: player.isSwimming
     });
   });
 
@@ -469,12 +590,23 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('player:prop', (payload) => {
+  socket.on('player:prop', (payload, ack) => {
     const room = getRoomForSocket(socket);
     const player = room?.players.get(socket.id);
     if (!player) return;
 
     const nextProp = VALID_PROP_TYPES.has(payload?.type) ? payload.type : null;
+    if (nextProp) {
+      if ((player.coins || 0) < PROP_PRICE) {
+        if (typeof ack === 'function') {
+          ack({ ok: false, error: 'NOT_ENOUGH_COINS', required: PROP_PRICE, coins: player.coins || 0 });
+        }
+        return;
+      }
+      player.coins = (player.coins || 0) - PROP_PRICE;
+      socket.emit('coins:updated', { coins: player.coins });
+    }
+
     player.heldProp = nextProp;
     player.propBites = nextProp && EDIBLE_PROP_TYPES.has(nextProp) ? 3 : 0;
 
@@ -483,6 +615,9 @@ io.on('connection', (socket) => {
       heldProp: nextProp,
       propBites: player.propBites
     });
+    if (typeof ack === 'function') {
+      ack({ ok: true, coins: player.coins, heldProp: nextProp });
+    }
   });
 
   socket.on('player:eat', () => {
@@ -585,6 +720,13 @@ io.on('connection', (socket) => {
       heldKrathong: null
     });
 
+    // Classic Thai Loy Krathong touch: floating a krathong spawns a +2 coin near it in the pond!
+    if (room.pondCoins.length < MAX_POND_COINS) {
+      const kCoin = createRandomPondCoin(launchX + 0.8 + Math.random() * 1.6, launchZ + (Math.random() - 0.5) * 1.4, 2);
+      room.pondCoins.push(kCoin);
+      io.to(room.id).emit('coin:spawned', kCoin);
+    }
+
     pushChat(room, {
       id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       senderId: 'system',
@@ -603,6 +745,15 @@ io.on('connection', (socket) => {
     const room = getRoomForSocket(socket);
     const player = room?.players.get(socket.id);
     if (!player) return;
+
+    if ((player.coins || 0) < LANTERN_PRICE) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'NOT_ENOUGH_COINS', required: LANTERN_PRICE, coins: player.coins || 0 });
+      }
+      return;
+    }
+    player.coins = (player.coins || 0) - LANTERN_PRICE;
+    socket.emit('coins:updated', { coins: player.coins });
 
     pruneExpiredLanterns(room);
 
@@ -749,6 +900,256 @@ io.on('connection', (socket) => {
     const player = room?.players.get(socket.id);
     if (!player) return;
     socket.to(room.id).emit('player:waved', { id: socket.id });
+  });
+
+  socket.on('fireworks:launch', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+
+    const now = Date.now();
+    if (player.lastFireworkAt && now - player.lastFireworkAt < 3000) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'COOLDOWN' });
+      return;
+    }
+
+    const style = Object.prototype.hasOwnProperty.call(FIREWORK_STYLE_NAMES, payload?.style)
+      ? payload.style
+      : 'gold';
+    const price = FIREWORK_PRICES[style] || 10;
+    if ((player.coins || 0) < price) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'NOT_ENOUGH_COINS', required: price, coins: player.coins || 0 });
+      }
+      return;
+    }
+
+    player.coins = (player.coins || 0) - price;
+    player.lastFireworkAt = now;
+    socket.emit('coins:updated', { coins: player.coins });
+
+    const fwEvent = {
+      id: `fw-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      ownerId: socket.id,
+      ownerName: player.nickname,
+      style,
+      createdAt: now
+    };
+    io.to(room.id).emit('fireworks:launched', fwEvent);
+
+    pushChat(room, {
+      id: `sys-${now}-${Math.random().toString(36).slice(2, 7)}`,
+      senderId: 'system',
+      senderName: 'ลานจุดพลุเฉลิมฉลอง',
+      text: `${player.nickname} จุด${FIREWORK_STYLE_NAMES[style]} สว่างไสวทั่วท้องฟ้าวัดทุ่งท่าช้าง!`,
+      type: 'system',
+      timestamp: now
+    });
+
+    if (typeof ack === 'function') ack({ ok: true, firework: fwEvent, coins: player.coins });
+  });
+
+  socket.on('coin:collect', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player || !payload?.coinId) return;
+
+    const idx = room.pondCoins.findIndex((c) => c.id === payload.coinId);
+    if (idx < 0) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'ALREADY_TAKEN' });
+      return;
+    }
+    const [coin] = room.pondCoins.splice(idx, 1);
+    player.coins = (player.coins || 0) + coin.value;
+    socket.emit('coins:updated', { coins: player.coins });
+    io.to(room.id).emit('coin:collected', {
+      coinId: coin.id,
+      collectorId: socket.id,
+      collectorName: player.nickname,
+      value: coin.value
+    });
+    if (typeof ack === 'function') ack({ ok: true, value: coin.value, coins: player.coins });
+  });
+
+  socket.on('esiimsi:bonus', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player || payload?.tier !== 'great') {
+      if (typeof ack === 'function') ack({ ok: false });
+      return;
+    }
+    const now = Date.now();
+    if (player.lastEsiimsiBonusAt && now - player.lastEsiimsiBonusAt < 180000) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'COOLDOWN' });
+      return;
+    }
+    player.lastEsiimsiBonusAt = now;
+    player.coins = (player.coins || 0) + 5;
+    socket.emit('coins:updated', { coins: player.coins });
+    if (typeof ack === 'function') ack({ ok: true, bonus: 5, coins: player.coins });
+  });
+
+  socket.on('player:sendHeart', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const sender = room?.players.get(socket.id);
+    const targetId = typeof payload?.targetId === 'string' ? payload.targetId : '';
+    const target = room?.players.get(targetId);
+    if (!sender || !target || target.id === sender.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'INVALID_TARGET' });
+      return;
+    }
+    const now = Date.now();
+    if (sender.lastHeartSentAt && now - sender.lastHeartSentAt < 3000) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'COOLDOWN' });
+      return;
+    }
+    sender.lastHeartSentAt = now;
+    target.hearts = (target.hearts || 0) + 1;
+
+    io.to(room.id).emit('player:heartReceived', {
+      fromId: sender.id,
+      fromName: sender.nickname,
+      toId: target.id,
+      toName: target.nickname,
+      hearts: target.hearts
+    });
+    if (typeof ack === 'function') ack({ ok: true, hearts: target.hearts });
+  });
+
+  socket.on('player:giftCoins', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const sender = room?.players.get(socket.id);
+    const targetId = typeof payload?.targetId === 'string' ? payload.targetId : '';
+    const target = room?.players.get(targetId);
+    if (!sender || !target || target.id === sender.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'INVALID_TARGET' });
+      return;
+    }
+    const amount = Math.floor(Number(payload?.amount));
+    if (!Number.isFinite(amount) || amount < 1 || amount > 999) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'INVALID_AMOUNT' });
+      return;
+    }
+    if ((sender.coins || 0) < amount) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'NOT_ENOUGH_COINS', coins: sender.coins || 0, required: amount });
+      }
+      return;
+    }
+
+    sender.coins = (sender.coins || 0) - amount;
+    target.coins = (target.coins || 0) + amount;
+
+    socket.emit('coins:updated', { coins: sender.coins });
+    io.to(target.id).emit('coins:updated', { coins: target.coins });
+    io.to(room.id).emit('player:coinGifted', {
+      fromId: sender.id,
+      fromName: sender.nickname,
+      toId: target.id,
+      toName: target.nickname,
+      amount
+    });
+
+    pushChat(room, {
+      id: `gift-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      senderId: 'system',
+      senderName: 'น้ำใจงานวัด',
+      text: `${sender.nickname} มอบเงินทำบุญ ${amount} เหรียญ ให้ ${target.nickname}! 💰✨`,
+      type: 'system',
+      timestamp: Date.now()
+    });
+
+    if (typeof ack === 'function') ack({ ok: true, amount, coins: sender.coins });
+  });
+
+  // 4-Emote Dance & Gesture Sync (wave / ramwong / cheer / wai / null)
+  socket.on('player:emote', (payload) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+    const emote = VALID_EMOTES.has(payload?.emote) ? payload.emote : null;
+    player.activeEmote = emote === 'wave' || emote === 'wai' ? null : emote;
+    socket.to(room.id).emit('player:emoted', { id: socket.id, emote });
+  });
+
+  // Mini-game 1: Balloon Dart (5 coins -> pop >= 7 in 15s -> win +15 coins + Teddy Bear prop!)
+  socket.on('minigame:balloonStart', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+    if ((player.coins || 0) < BALLOON_GAME_PRICE) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'NOT_ENOUGH_COINS', required: BALLOON_GAME_PRICE, coins: player.coins || 0 });
+      }
+      return;
+    }
+    player.coins = (player.coins || 0) - BALLOON_GAME_PRICE;
+    player.balloonSession = { startedAt: Date.now() };
+    socket.emit('coins:updated', { coins: player.coins });
+    if (typeof ack === 'function') ack({ ok: true, coins: player.coins });
+  });
+
+  socket.on('minigame:balloonFinish', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player || !player.balloonSession) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'NO_SESSION' });
+      return;
+    }
+    player.balloonSession = null;
+    const popped = Math.max(0, Math.min(12, Math.floor(Number(payload?.popped) || 0)));
+    const won = popped >= 7;
+    if (won) {
+      player.coins = (player.coins || 0) + 15;
+      player.heldProp = 'teddy';
+      player.propBites = 0;
+      socket.emit('coins:updated', { coins: player.coins });
+      io.to(room.id).emit('player:propUpdated', {
+        id: socket.id,
+        heldProp: 'teddy',
+        propBites: 0
+      });
+      pushChat(room, {
+        id: `bal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        senderId: 'system',
+        senderName: 'ซุ้มปาโป่งงานวัด',
+        text: `🏆 ${player.nickname} ปาโป่งแตก ${popped} ลูก! คว้ารางวัล +15 เหรียญ และตุ๊กตาหมีงานวัด 🧸`,
+        type: 'system',
+        timestamp: Date.now()
+      });
+      if (typeof ack === 'function') {
+        ack({ ok: true, won: true, popped, reward: 15, prop: 'teddy', coins: player.coins });
+      }
+    } else {
+      if (typeof ack === 'function') {
+        ack({ ok: true, won: false, popped, reward: 0, coins: player.coins });
+      }
+    }
+  });
+
+  // Krathong Contest Live Voting
+  socket.on('contest:vote', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    const entry = payload?.entry;
+    if (!player || !VALID_CONTEST_ENTRIES.has(entry)) {
+      if (typeof ack === 'function') ack({ ok: false });
+      return;
+    }
+    room.contestVotes.set(socket.id, entry);
+    const summary = getContestSummary(room);
+    io.to(room.id).emit('contest:updated', summary);
+    if (typeof ack === 'function') ack({ ok: true, entry, ...summary });
+  });
+
+  // Live Room Leaderboard (Top 3 Hearts & Top 3 Coins)
+  socket.on('leaderboard:get', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    if (!room) {
+      if (typeof ack === 'function') ack({ ok: false });
+      return;
+    }
+    if (typeof ack === 'function') ack({ ok: true, ...getRoomLeaderboard(room) });
   });
 
   // Proximity-scoped WebRTC Signaling (only within same room)

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createTeddyBearMesh } from './fair-games.js';
 
 // ============================================================================
 // VENDOR MARKET — 77 Authentic Thai Temple Fair Stalls + 77 Animated Vendors
@@ -12,7 +13,8 @@ export const VENDOR_PROP_META = {
   cotton_candy: { name: 'สายไหมพาสเทล', emoji: '🍭', edible: true, verb: 'กิน', verbEmoji: '😋', lines: ['🍭 หวานหอมละมุนลิ้น!', '😋 สายไหมฟูอร่อยมาก!', '✨ กินสายไหมหมดแล้ว!'] },
   drink: { name: 'ชานม-น้ำลำไย', emoji: '🧋', edible: true, verb: 'ดื่ม', verbEmoji: '🧋', lines: ['🧋 อึก ๆ เย็นชื่นใจ!', '😋 หอมหวานสดชื่นจัง!', '🧋 ดื่มหมดแก้วแล้ว สดชื่น!'] },
   glowstick: { name: 'แท่งไฟเชียร์', emoji: '✨', edible: false },
-  balloon: { name: 'ลูกโป่งสวรรค์', emoji: '🎈', edible: false }
+  balloon: { name: 'ลูกโป่งสวรรค์', emoji: '🎈', edible: false },
+  teddy: { name: 'ตุ๊กตาหมีงานวัด', emoji: '🧸', edible: false }
 };
 
 // 16 distinct Thai temple fair shop templates mapped into a 4x4 Sign Texture Atlas
@@ -547,6 +549,13 @@ export function createHandheldPropMesh(propType, bitesLeft = 3) {
     halo.position.y = 0.25;
     g.add(halo);
     g.rotation.x = 0.28;
+    return g;
+  }
+
+  if (propType === 'teddy') {
+    const bear = createTeddyBearMesh();
+    bear.position.set(0, 0.04, 0.04);
+    g.add(bear);
     return g;
   }
 
