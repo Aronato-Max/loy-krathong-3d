@@ -5,5 +5,5 @@ window.LOY_KRATHONG_CONFIG = {
   serverUrl:
     window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       ? ''
-      : 'https://loy-krathong-3d-oz0w.onrender.com'
+      : '[https://loy-krathong-server-2.onrender.com](https://loy-krathong-server-2.onrender.com)'
 };
