@@ -81,6 +81,45 @@ import {
   playDartPopSound,
   playStarWinSound
 } from './fair-games.js';
+import {
+  FERRIS_WHEEL_CONFIG,
+  buildFerrisWheel,
+  updateFerrisWheel,
+  getFerrisSeatWorldPos,
+  drawFerrisWheelMinimap
+} from './ferris-wheel.js';
+import {
+  MOTO_CATALOG,
+  initMotorcycleRideTemplates,
+  createPlayerMotorcycleMesh,
+  resolveMotoRestrictedCollisions,
+  playMotoHornSound,
+  createMotoEngineState,
+  updateMotoEngineHum
+} from './motorcycle-ride.js';
+import {
+  ANNOUNCER_DESK_CONFIG,
+  getAnnouncerRightSideGain,
+  buildAnnouncerDesk,
+  updateAnnouncerDesk,
+  drawAnnouncerMinimap,
+  playPaChimeSound,
+  createPaVoiceStreamer,
+  startPaVoiceStreamer,
+  stopPaVoiceStreamer,
+  playPaVoicePcmPacket
+} from './announcer-desk.js?v=30';
+import { containsProfanity } from './profanity.js?v=31';
+import {
+  BOUNCY_CASTLE_CONFIG,
+  getBouncySpawnWorld,
+  createBouncyPlayerPhysics,
+  triggerBouncyJump,
+  stepPlayerInsideBouncyCastle,
+  resolveBouncyOuterCollision,
+  buildBouncyEntranceSign,
+  drawBouncyCastleMinimap
+} from './bouncy-castle.js?v=33';
 
 // Backend API/Socket origin (empty = same origin; set via /config.js when hosting public/ on Cloudflare Pages)
 const SERVER_URL = (window.LOY_KRATHONG_CONFIG?.serverUrl || '').replace(/\/+$/, '');
@@ -149,6 +188,15 @@ const MODEL_SPECS = [
     pos: [31, 0, 13],
     rotY: -Math.PI / 2,
     fallbackSize: [10.64, 6, 15]
+  },
+  {
+    key: 'bouncyCastle',
+    url: '/models/bouncy_castle.glb?v=1',
+    label: 'บ้านลมยักษ์เลโก้',
+    pos: [BOUNCY_CASTLE_CONFIG.x, 0, BOUNCY_CASTLE_CONFIG.z],
+    rotY: BOUNCY_CASTLE_CONFIG.rotY,
+    scale: BOUNCY_CASTLE_CONFIG.scale,
+    fallbackSize: [12, 6, 7.2]
   }
 ];
 
@@ -267,6 +315,41 @@ const INTERACT_ZONES = [
     radius: 5.2,
     label: 'โหวตประกวดกระทงสวยประจำงาน 🪷',
     dialogId: 'dialog-contest-vote'
+  },
+  {
+    id: 'ferris-wheel',
+    x: FERRIS_WHEEL_CONFIG.interactX,
+    z: FERRIS_WHEEL_CONFIG.interactZ,
+    radius: FERRIS_WHEEL_CONFIG.interactRadius,
+    label: 'ขึ้นนั่งชิงช้าสวรรค์ชมวิว (5 💰) 🎡'
+  },
+  {
+    id: 'moto-lot-left',
+    x: -16,
+    z: 46,
+    radius: 7.4,
+    label: 'เช่าขี่มอเตอร์ไซค์เที่ยวงาน (5 💰) 🏍️'
+  },
+  {
+    id: 'moto-lot-right',
+    x: 11.5,
+    z: 48,
+    radius: 6.4,
+    label: 'เช่าขี่มอเตอร์ไซค์เที่ยวงาน (5 💰) 🏍️'
+  },
+  {
+    id: 'announcer-desk',
+    x: ANNOUNCER_DESK_CONFIG.x,
+    z: ANNOUNCER_DESK_CONFIG.z,
+    radius: ANNOUNCER_DESK_CONFIG.interactRadius,
+    label: 'นั่งโต๊ะมัคนายกประกาศงานวัด (ฟรี) 🎙️'
+  },
+  {
+    id: 'bouncy-castle',
+    x: BOUNCY_CASTLE_CONFIG.interactX,
+    z: BOUNCY_CASTLE_CONFIG.interactZ,
+    radius: BOUNCY_CASTLE_CONFIG.interactRadius,
+    label: 'เข้าเล่นบ้านลมยักษ์เลโก้ (5 💰 • รอบละ 2:30 นาที) 🏰'
   }
 ];
 
@@ -295,21 +378,37 @@ const dom = {
   previewSelectedName: document.getElementById('preview-selected-name'),
   previewCounter: document.getElementById('preview-counter'),
   avatarDots: document.getElementById('avatar-dots'),
+  lobbySavedBadge: document.getElementById('lobby-saved-badge'),
+  lobbyErrorMsg: document.getElementById('lobby-error-msg'),
   inputNickname: document.getElementById('input-nickname'),
   selectRoom: document.getElementById('select-room'),
   optMic: document.getElementById('opt-mic'),
   optLowGfx: document.getElementById('opt-low-gfx'),
+  btnEnterWorld: document.getElementById('btn-enter-world'),
 
   hud: document.getElementById('hud'),
   hudNickname: document.getElementById('hud-nickname'),
   hudRoomName: document.getElementById('hud-room-name'),
   hudOnlineCount: document.getElementById('hud-online-count'),
   hudCoins: document.getElementById('hud-coins'),
+  hudHungerPill: document.getElementById('hud-hunger-pill'),
+  hudHungerIcon: document.getElementById('hud-hunger-icon'),
+  hudHungerBar: document.getElementById('hud-hunger-bar'),
+  hudHungerFill: document.getElementById('hud-hunger-fill'),
+  hudHungerPct: document.getElementById('hud-hunger-pct'),
   hudHeldKrathong: document.getElementById('hud-held-krathong'),
-  btnMusicToggle: document.getElementById('btn-music-toggle'),
+  btnSettings: document.getElementById('btn-settings'),
+  settingsBtnLabel: document.getElementById('settings-btn-label'),
   btnGfxToggle: document.getElementById('btn-gfx-toggle'),
   btnMicSetup: document.getElementById('btn-mic-setup'),
   micStateText: document.getElementById('mic-state-text'),
+  paAnnounceBanner: document.getElementById('pa-announce-banner'),
+  paBannerSpeaker: document.getElementById('pa-banner-speaker'),
+  paBannerText: document.getElementById('pa-banner-text'),
+  bouncyTimerPill: document.getElementById('bouncy-timer-pill'),
+  bouncyTimerText: document.getElementById('bouncy-timer-text'),
+  btnBouncyJump: document.getElementById('btn-bouncy-jump'),
+  btnBouncyExit: document.getElementById('btn-bouncy-exit'),
 
   btnFullscreen: document.getElementById('btn-fullscreen'),
   btnMinimapOpen: document.getElementById('btn-minimap-open'),
@@ -323,11 +422,15 @@ const dom = {
   interactWrap: document.getElementById('interact-prompt-wrap'),
   btnInteract: document.getElementById('btn-interact'),
   interactLabel: document.getElementById('interact-label'),
+  btnFerrisCam: document.getElementById('btn-ferris-cam'),
+  ferrisCamLabel: document.getElementById('ferris-cam-label'),
 
   joystickZone: document.getElementById('joystick-zone'),
   joystickKnob: document.getElementById('joystick-knob'),
   hudBottomRight: document.getElementById('hud-bottom-right'),
   btnSprint: document.getElementById('btn-sprint'),
+  btnMotoHorn: document.getElementById('btn-moto-horn'),
+  btnMotoDismount: document.getElementById('btn-moto-dismount'),
   btnEat: document.getElementById('btn-eat'),
   eatIcon: document.getElementById('eat-icon'),
   eatText: document.getElementById('eat-text'),
@@ -415,6 +518,20 @@ const dom = {
   socialGiftForm: document.getElementById('social-gift-form'),
   inputGiftCoins: document.getElementById('input-gift-coins'),
   btnLeaderboard: document.getElementById('btn-leaderboard'),
+  btnAutofollow: document.getElementById('btn-autofollow'),
+  dialogSettings: document.getElementById('dialog-settings'),
+  btnMuteMusic: document.getElementById('btn-mute-music'),
+  sliderVolMusic: document.getElementById('slider-vol-music'),
+  valVolMusic: document.getElementById('val-vol-music'),
+  btnMuteSfx: document.getElementById('btn-mute-sfx'),
+  sliderVolSfx: document.getElementById('slider-vol-sfx'),
+  valVolSfx: document.getElementById('val-vol-sfx'),
+  btnMuteVoice: document.getElementById('btn-mute-voice'),
+  sliderVolVoice: document.getElementById('slider-vol-voice'),
+  valVolVoice: document.getElementById('val-vol-voice'),
+  settingsFpsReadout: document.getElementById('settings-fps-readout'),
+  btnToggleLabels: document.getElementById('btn-toggle-labels'),
+  btnSwitchCharacter: document.getElementById('btn-switch-character'),
   emoteDrawer: document.getElementById('emote-drawer'),
   btnEmoteToggle: document.getElementById('btn-emote-toggle'),
   dialogBalloonGame: document.getElementById('dialog-balloon-game'),
@@ -441,11 +558,35 @@ const state = {
   roomMax: 50,
   selectedRoomId: 'auto',
   nickname: 'ผู้ร่วมงาน',
-  coins: 20,
+  coins: 50,
+  hunger: 100,
+  lowHungerNotified: false,
+  starveNotifiedAt: 0,
   fireworkViewUntil: 0,
+  fireworkDuckUntil: 0,
+  serverClockOffset: 0,
   socialTargetId: null,
   activeEmote: null,
   headAccessory: null,
+  ferrisSeat: null,
+  ferrisFirstPerson: true,
+  inBouncyCastle: false,
+  bouncyEndsAt: 0,
+  ridingMoto: null,
+  motoQuota: { used: 0, max: 10, available: 10 },
+  autoFollowCam: true,
+  manualCamUntil: 0,
+  hideAllLabels: false,
+  clientToken: '',
+  musicVolume: 0.85,
+  sfxEnabled: true,
+  sfxVolume: 0.85,
+  voiceAudioEnabled: true,
+  voiceVolume: 1.0,
+  announcerId: null,
+  announcerName: null,
+  paBannerExpireAt: 0,
+  paLiveSpeaking: false,
   contestVotes: { counts: { banana: 0, lotus: 0, bread: 0 }, total: 0 },
   myContestVote: null,
   avatarConfig: {
@@ -472,6 +613,7 @@ const state = {
   players: new Map(), // id -> { id, nickname, avatar, group, parts, targetPos, currentPos, targetRotY, currentRotY, isMoving, isRunning, heldKrathong, heldMesh, isSpeaking, chatBubble, chatExpire, labelEl }
   krathongs: new Map(), // id -> { data, mesh, labelEl }
   releasedLanterns: new Map(), // id -> { data, mesh, labelEl }
+  parkedMotos: new Map(), // id -> { data, mesh }
   modelReport: []
 };
 
@@ -512,6 +654,178 @@ let fireworksState = null;
 let pondCoinsState = null;
 let hauntedForestState = null;
 let fairGamesState = null;
+let ferrisWheelState = null;
+let announcerDeskState = null;
+const contestScoreboards = { pedestals: {}, header: null };
+
+function updateContest3DScoreboards() {
+  const counts = state.contestVotes?.counts || { banana: 0, lotus: 0, bread: 0 };
+  const total = state.contestVotes?.total || 0;
+  const maxVotes = Math.max(counts.banana || 0, counts.lotus || 0, counts.bread || 0);
+
+  if (contestScoreboards.header) {
+    const { ctx, canvas, tex } = contestScoreboards.header;
+    const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    grad.addColorStop(0, '#450a0a');
+    grad.addColorStop(0.5, '#7c2d12');
+    grad.addColorStop(1, '#450a0a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fde047';
+    ctx.font = 'bold 48px "Noto Sans Thai", sans-serif';
+    ctx.fillText('🪷 ประกวดกระทงสวยประจำงาน', canvas.width / 2, 64);
+
+    ctx.fillStyle = '#fef9c3';
+    ctx.font = '700 28px "Noto Sans Thai", sans-serif';
+    ctx.fillText(
+      `📊 ผลโหวตสดรวม ${total} คะแนน • กด E เพื่อร่วมโหวต`,
+      canvas.width / 2,
+      126
+    );
+    tex.needsUpdate = true;
+  }
+
+  for (const [id, board] of Object.entries(contestScoreboards.pedestals || {})) {
+    const { ctx, canvas, tex, num, shortName } = board;
+    const c = counts[id] || 0;
+    const pct = total > 0 ? Math.round((c / total) * 100) : 0;
+    const isLeader = maxVotes > 0 && c === maxVotes;
+
+    ctx.fillStyle = isLeader ? '#7c2d12' : '#1e1b4b';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = isLeader ? '#fde047' : '#f59e0b';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fef08a';
+    ctx.font = 'bold 28px "Noto Sans Thai", sans-serif';
+    ctx.fillText(
+      `${isLeader ? '👑 ' : ''}หมายเลข ${num} • ${shortName}`,
+      canvas.width / 2,
+      44
+    );
+
+    ctx.fillStyle = isLeader ? '#ffffff' : '#fde047';
+    ctx.font = 'bold 40px "Noto Sans Thai", sans-serif';
+    ctx.fillText(`${c} โหวต (${pct}%)`, canvas.width / 2, 106);
+
+    tex.needsUpdate = true;
+  }
+}
+
+function updateHungerUI() {
+  const val = Math.max(0, Math.min(100, Math.round(state.hunger)));
+  document.body.dataset.hunger = String(val);
+  if (dom.hudHungerFill) {
+    dom.hudHungerFill.style.width = `${val}%`;
+  }
+  if (dom.hudHungerBar) {
+    dom.hudHungerBar.setAttribute('aria-valuenow', String(val));
+  }
+  if (dom.hudHungerPct) {
+    dom.hudHungerPct.textContent = `${val}%`;
+  }
+  if (dom.hudHungerPill) {
+    dom.hudHungerPill.classList.toggle('is-medium', val >= 30 && val < 60);
+    dom.hudHungerPill.classList.toggle('is-low', val < 30);
+  }
+  if (dom.hudHungerIcon) {
+    dom.hudHungerIcon.textContent = val < 10 ? '😵' : val < 30 ? '🤤' : '🍖';
+  }
+}
+const paVoiceStreamer = createPaVoiceStreamer();
+const motoEngineState = createMotoEngineState();
+const bouncyPhys = createBouncyPlayerPhysics();
+
+// ============================================================================
+// PERSISTENT CHARACTER PROFILE & SETTINGS STORAGE (localStorage)
+// ============================================================================
+
+const PROFILE_STORAGE_KEY = 'loyKrathong_profile_v1';
+
+function generateClientToken() {
+  try {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return `lk-${window.crypto.randomUUID().replace(/[^a-zA-Z0-9-]/g, '')}`;
+    }
+  } catch {}
+  return `lk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function loadSavedProfileFromStorage() {
+  try {
+    const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (typeof parsed.clientToken === 'string' && /^[\w-]{8,64}$/.test(parsed.clientToken)) {
+      state.clientToken = parsed.clientToken;
+    } else {
+      state.clientToken = generateClientToken();
+    }
+    if (typeof parsed.nickname === 'string' && parsed.nickname.trim()) {
+      state.nickname = parsed.nickname.trim().slice(0, 20);
+      if (dom.inputNickname) dom.inputNickname.value = state.nickname;
+      if (dom.lobbySavedBadge) dom.lobbySavedBadge.classList.remove('hidden');
+    }
+    if (typeof parsed.avatarId === 'string' && AVATAR_BY_ID.has(parsed.avatarId)) {
+      state.avatarConfig = { avatarId: parsed.avatarId };
+    }
+    if (typeof parsed.lowGraphics === 'boolean') state.lowGraphics = parsed.lowGraphics;
+    if (typeof parsed.musicEnabled === 'boolean') state.musicEnabled = parsed.musicEnabled;
+    if (Number.isFinite(parsed.musicVolume)) {
+      state.musicVolume = Math.max(0, Math.min(1, Number(parsed.musicVolume)));
+    }
+    if (typeof parsed.sfxEnabled === 'boolean') state.sfxEnabled = parsed.sfxEnabled;
+    if (Number.isFinite(parsed.sfxVolume)) {
+      state.sfxVolume = Math.max(0, Math.min(1, Number(parsed.sfxVolume)));
+    }
+    if (typeof parsed.voiceAudioEnabled === 'boolean') {
+      state.voiceAudioEnabled = parsed.voiceAudioEnabled;
+    }
+    if (Number.isFinite(parsed.voiceVolume)) {
+      state.voiceVolume = Math.max(0, Math.min(1, Number(parsed.voiceVolume)));
+    }
+    if (typeof parsed.autoFollowCam === 'boolean') state.autoFollowCam = parsed.autoFollowCam;
+    if (typeof parsed.hideAllLabels === 'boolean') state.hideAllLabels = parsed.hideAllLabels;
+
+    // Persist generated clientToken right away so refreshes always recognize this browser
+    saveProfileToStorage();
+  } catch {
+    if (!state.clientToken) state.clientToken = generateClientToken();
+  }
+}
+
+function saveProfileToStorage() {
+  try {
+    const payload = {
+      clientToken: state.clientToken || generateClientToken(),
+      nickname: dom.inputNickname?.value.trim() || state.nickname || '',
+      avatarId: state.avatarConfig?.avatarId || 'Avatar_BoyCargo',
+      lowGraphics: Boolean(state.lowGraphics),
+      musicEnabled: Boolean(state.musicEnabled),
+      musicVolume: Number(state.musicVolume.toFixed(2)),
+      sfxEnabled: Boolean(state.sfxEnabled),
+      sfxVolume: Number(state.sfxVolume.toFixed(2)),
+      voiceAudioEnabled: Boolean(state.voiceAudioEnabled),
+      voiceVolume: Number(state.voiceVolume.toFixed(2)),
+      autoFollowCam: Boolean(state.autoFollowCam),
+      hideAllLabels: Boolean(state.hideAllLabels)
+    };
+    state.clientToken = payload.clientToken;
+    window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(payload));
+  } catch {}
+}
+
+loadSavedProfileFromStorage();
 const lambertMatCache = new WeakMap();
 
 function toFastLambertMaterial(stdMat) {
@@ -712,8 +1026,8 @@ function applyGraphicsMode(low) {
   applyPerfLodMode(state.lowGraphics);
   if (dom.btnGfxToggle) {
     dom.btnGfxToggle.setAttribute('aria-pressed', String(state.lowGraphics));
-    const lbl = dom.btnGfxToggle.querySelector('.btn-label');
-    if (lbl) lbl.textContent = state.lowGraphics ? 'กราฟิก: ประหยัด' : 'กราฟิก: ปกติ';
+    dom.btnGfxToggle.classList.toggle('is-on', !state.lowGraphics);
+    dom.btnGfxToggle.textContent = state.lowGraphics ? 'ประหยัด (ลื่นพิเศษ)' : 'ปกติ (ภาพสวย)';
   }
 }
 
@@ -751,6 +1065,9 @@ function resolvePlayerCollisions(pos, radius = 0.48) {
   pos.z = Math.max(WORLD_BOUNDS.minZ, Math.min(WORLD_BOUNDS.maxZ, pos.z));
 
   for (let pass = 0; pass < 2; pass++) {
+    if (!state.inBouncyCastle) {
+      resolveBouncyOuterCollision(pos, radius);
+    }
     for (const box of staticAABBs) {
       const closestX = Math.max(box.minX, Math.min(pos.x, box.maxX));
       const closestZ = Math.max(box.minZ, Math.min(pos.z, box.maxZ));
@@ -1917,7 +2234,7 @@ function buildSpecialZones() {
   }
   addCollisionBox(7.1, 9.9, -25.6, -24.8, 'command-tent-desk');
 
-  // 2) โซนประกวดกระทง: แท่นวางกระทงประกวดขนาดใหญ่ 3 ใบพร้อมป้ายไฟที่ (15, 7)
+  // 2) โซนประกวดกระทง: แท่นวางกระทงประกวดขนาดใหญ่ 3 ใบพร้อมป้ายคะแนนโหวตสด & เสาตั้งป้ายที่ (15, 7)
   const contestGroup = new THREE.Group();
   contestGroup.position.set(15, 0, 7);
 
@@ -1928,8 +2245,24 @@ function buildSpecialZones() {
   carpet.position.y = 0.07;
   contestGroup.add(carpet);
 
-  const types = ['banana', 'lotus', 'bread'];
+  const postMetalMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.55, metalness: 0.25 });
+  const postGoldMat = new THREE.MeshStandardMaterial({
+    color: 0xfacc15,
+    metalness: 0.65,
+    roughness: 0.28,
+    emissive: 0x92400e,
+    emissiveIntensity: 0.28
+  });
+
+  const contestMetaList = [
+    { id: 'banana', num: 1, shortName: 'ใบตอง' },
+    { id: 'lotus', num: 2, shortName: 'ดอกบัว' },
+    { id: 'bread', num: 3, shortName: 'ขนมปัง' }
+  ];
+
+  contestScoreboards.pedestals = {};
   for (let i = 0; i < 3; i++) {
+    const meta = contestMetaList[i];
     const px = (i - 1) * 3.0;
     const ped = new THREE.Mesh(
       new THREE.CylinderGeometry(0.85, 1.0, 1.05, 12),
@@ -1940,20 +2273,92 @@ function buildSpecialZones() {
 
     const goldRing = new THREE.Mesh(
       new THREE.TorusGeometry(0.88, 0.06, 8, 18),
-      new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.6, roughness: 0.3 })
+      postGoldMat
     );
     goldRing.rotation.x = Math.PI / 2;
     goldRing.position.set(px, 1.08, 0);
     contestGroup.add(goldRing);
 
-    const giantKrathong = createKrathongMesh(types[i], 2.5);
+    const giantKrathong = createKrathongMesh(meta.id, 2.5);
     giantKrathong.position.set(px, 1.1, 0);
     contestGroup.add(giantKrathong);
+
+    // Live 3D Vote Scoreboard Plaque mounted cleanly on the front of each pedestal!
+    const pCanvas = document.createElement('canvas');
+    pCanvas.width = 320;
+    pCanvas.height = 152;
+    const pTex = new THREE.CanvasTexture(pCanvas);
+    pTex.colorSpace = THREE.SRGBColorSpace;
+    const plaqueFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(1.48, 0.72, 0.06),
+      postGoldMat
+    );
+    plaqueFrame.position.set(px, 0.58, 0.96);
+    plaqueFrame.rotation.x = -0.14;
+    contestGroup.add(plaqueFrame);
+
+    const plaqueFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 0.64),
+      new THREE.MeshBasicMaterial({ map: pTex })
+    );
+    plaqueFace.position.set(px, 0.58, 0.995);
+    plaqueFace.rotation.x = -0.14;
+    contestGroup.add(plaqueFace);
+
+    contestScoreboards.pedestals[meta.id] = {
+      canvas: pCanvas,
+      ctx: pCanvas.getContext('2d'),
+      tex: pTex,
+      num: meta.num,
+      shortName: meta.shortName
+    };
   }
 
-  const contestSign = createSignBoard('ประกวดกระทง', 4.2, 1.0, '#7c2d12', '#fde047');
-  contestSign.position.set(0, 2.9, -1.6);
-  contestGroup.add(contestSign);
+  // Sturdy Supporting Legs + Golden Pedestal Bases + Finials for the Rear Contest Signboard!
+  for (const sx of [-2.05, 2.05]) {
+    const legPole = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.085, 3.35, 10), postMetalMat);
+    legPole.position.set(sx, 1.675, -1.6);
+    contestGroup.add(legPole);
+
+    const legBase = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.16, 10), postGoldMat);
+    legBase.position.set(sx, 0.18, -1.6);
+    contestGroup.add(legBase);
+
+    const legCap = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), postGoldMat);
+    legCap.position.set(sx, 3.42, -1.6);
+    contestGroup.add(legCap);
+  }
+  const crossBeam = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.09, 0.09), postGoldMat);
+  crossBeam.position.set(0, 2.34, -1.6);
+  contestGroup.add(crossBeam);
+
+  // Double-sided Live Overhead Contest Scoreboard Sign mounted firmly between the two legs!
+  const hCanvas = document.createElement('canvas');
+  hCanvas.width = 640;
+  hCanvas.height = 176;
+  const hTex = new THREE.CanvasTexture(hCanvas);
+  hTex.colorSpace = THREE.SRGBColorSpace;
+  const headerBack = new THREE.Mesh(new THREE.BoxGeometry(4.36, 1.18, 0.08), postGoldMat);
+  headerBack.position.set(0, 2.9, -1.6);
+  contestGroup.add(headerBack);
+
+  const headerMat = new THREE.MeshBasicMaterial({ map: hTex });
+  const headerFront = new THREE.Mesh(new THREE.PlaneGeometry(4.24, 1.08), headerMat);
+  headerFront.position.set(0, 2.9, -1.555);
+  contestGroup.add(headerFront);
+
+  const headerRear = new THREE.Mesh(new THREE.PlaneGeometry(4.24, 1.08), headerMat);
+  headerRear.position.set(0, 2.9, -1.645);
+  headerRear.rotation.y = Math.PI;
+  contestGroup.add(headerRear);
+
+  contestScoreboards.header = {
+    canvas: hCanvas,
+    ctx: hCanvas.getContext('2d'),
+    tex: hTex
+  };
+  updateContest3DScoreboards();
+
   scene.add(contestGroup);
   addCollisionBox(10.2, 19.8, 5.2, 8.8, 'krathong-contest');
 
@@ -2634,7 +3039,10 @@ function createStageFrontBannerTexture(flipY = false) {
       }
       modelRoot.position.set(...spec.pos);
       modelRoot.rotation.y = spec.rotY;
-      // Only large architectural buildings cast static baked shadows (skip high-poly tables/tunnels)
+      if (spec.scale) {
+        modelRoot.scale.setScalar(spec.scale);
+      }
+      // Only large architectural buildings cast static baked shadows (skip high-poly tables/tunnels/bouncy)
       const shouldCast = !state.lowGraphics && (spec.key === 'gate' || spec.key === 'ubosot' || spec.key === 'salaBuddha');
       const animRoots = mergeStaticMeshesByMaterial(modelRoot, spec.animate ? gltf.animations : [], shouldCast);
       if (spec.key === 'concertStage') {
@@ -2642,6 +3050,8 @@ function createStageFrontBannerTexture(flipY = false) {
         perfLodRefs.cullableBuildings.push({ root: modelRoot, pos: new THREE.Vector3(...spec.pos), maxDist: 82 });
       } else if (spec.key === 'krathongTables') {
         perfLodRefs.krathongTablesRoot = modelRoot;
+      } else if (spec.key === 'bouncyCastle') {
+        perfLodRefs.cullableBuildings.push({ root: modelRoot, pos: new THREE.Vector3(...spec.pos), maxDist: 64 });
       } else if (spec.key === 'gate' || spec.key === 'ubosot' || spec.key === 'salaBuddha') {
         perfLodRefs.cullableBuildings.push({ root: modelRoot, pos: new THREE.Vector3(...spec.pos), maxDist: 78 });
       }
@@ -2785,6 +3195,7 @@ function createStageFrontBannerTexture(flipY = false) {
       );
     });
     populateParkedMotorcycles(motoGltf.scene);
+    initMotorcycleRideTemplates(motoGltf.scene);
     if (frontRoadState) {
       upgradeRoadMotorcycles(frontRoadState, motoGltf.scene, avatarBank.scene);
     }
@@ -2855,6 +3266,7 @@ function buildFallbackAvatarMesh() {
     setEmote() {},
     setSeated() {},
     setSwimming() {},
+    setRidingMoto() {},
     update() {}
   };
 }
@@ -2942,6 +3354,7 @@ function buildAvatar(rawConfig = {}) {
   let seatBlend = 0;
   let isSwimmingPose = false;
   let swimClock = 0;
+  let isRidingMotoPose = false;
   const WAVE_DURATION = 1.85;
   let waveElapsed = -1;
   const EAT_DURATION = 1.35;
@@ -2976,16 +3389,45 @@ function buildAvatar(rawConfig = {}) {
     }
   }
 
+  const restQuats = new Map();
+  for (const b of [armR, forearmR, armL, forearmL, legL, shinL, legR, shinR]) {
+    if (b) restQuats.set(b, b.quaternion.clone());
+  }
+  function resetPoseBones() {
+    for (const [b, q] of restQuats) {
+      b.quaternion.copy(q);
+    }
+    model.position.y = baseModelY;
+    model.position.z = 0;
+  }
+
   function setSeated(seated) {
-    isSeatedPose = Boolean(seated);
+    const next = Boolean(seated);
+    if (isSeatedPose && !next) {
+      seatBlend = 0;
+      resetPoseBones();
+    }
+    isSeatedPose = next;
   }
 
   function setSwimming(swimming) {
-    isSwimmingPose = Boolean(swimming);
+    const next = Boolean(swimming);
+    if (isSwimmingPose && !next) {
+      resetPoseBones();
+    }
+    isSwimmingPose = next;
+  }
+
+  function setRidingMoto(riding) {
+    const next = Boolean(riding);
+    if (isRidingMotoPose && !next) {
+      resetPoseBones();
+    }
+    isRidingMotoPose = next;
   }
 
   function update(dt, isMoving = false, isRunning = false) {
-    const wantLocomotion = !isSeatedPose && !isSwimmingPose && isMoving && walkAction ? 'walk' : 'idle';
+    const wantLocomotion = !isSeatedPose && !isSwimmingPose && !isRidingMotoPose && isMoving && walkAction ? 'walk' : 'idle';
     if (wantLocomotion !== currentLocomotion) {
       const fromAct = currentLocomotion === 'walk' ? walkAction : idleAction;
       const toAct = wantLocomotion === 'walk' ? walkAction : idleAction;
@@ -3011,7 +3453,52 @@ function buildAvatar(rawConfig = {}) {
     } else {
       seatBlend = targetSeat;
     }
-    if (seatBlend > 0.005) {
+    if (isRidingMotoPose) {
+      // Straddling Thai scooter saddle, knees bent to floorboards, hands gripping handlebars!
+      model.position.y = baseModelY + 0.14;
+      model.position.z = -0.14;
+      if (legL) {
+        tmpEuler.set(-1.16, 0, 0.28, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        legL.quaternion.slerp(tmpQuat, 0.92);
+      }
+      if (legR) {
+        tmpEuler.set(-1.16, 0, -0.28, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        legR.quaternion.slerp(tmpQuat, 0.92);
+      }
+      if (shinL) {
+        tmpEuler.set(1.36, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        shinL.quaternion.slerp(tmpQuat, 0.92);
+      }
+      if (shinR) {
+        tmpEuler.set(1.36, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        shinR.quaternion.slerp(tmpQuat, 0.92);
+      }
+      if (armL) {
+        tmpEuler.set(-1.14, 0, 0.22, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        armL.quaternion.slerp(tmpQuat, 0.9);
+      }
+      if (armR && waveElapsed < 0 && eatElapsed < 0) {
+        tmpEuler.set(-1.14, 0, -0.22, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        armR.quaternion.slerp(tmpQuat, 0.9);
+      }
+      if (forearmL) {
+        tmpEuler.set(-0.32, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        forearmL.quaternion.slerp(tmpQuat, 0.9);
+      }
+      if (forearmR && waveElapsed < 0 && eatElapsed < 0) {
+        tmpEuler.set(-0.32, 0, 0, 'XYZ');
+        tmpQuat.setFromEuler(tmpEuler);
+        forearmR.quaternion.slerp(tmpQuat, 0.9);
+      }
+    } else if (seatBlend > 0.005) {
+      model.position.z = 0;
       model.position.y = baseModelY - seatBlend * Math.min(0.24, headY * 0.14);
       if (legL) {
         tmpEuler.set(-1.38 * seatBlend, 0, 0, 'XYZ');
@@ -3061,6 +3548,7 @@ function buildAvatar(rawConfig = {}) {
       }
     } else {
       model.position.y = baseModelY;
+      model.position.z = 0;
     }
 
     // Layered eating / drinking override: raises holding hand toward mouth + cheerful chew/sip head nod
@@ -3241,6 +3729,7 @@ function buildAvatar(rawConfig = {}) {
     setEmote,
     setSeated,
     setSwimming,
+    setRidingMoto,
     update
   };
 }
@@ -3310,6 +3799,7 @@ function selectAvatarByIndex(rawIndex) {
   previewWaveFocusUntil = 0;
   renderAvatarDots();
   refreshPreviewAvatar();
+  saveProfileToStorage();
 }
 
 function stepAvatar(delta) {
@@ -3536,6 +4026,61 @@ function updatePlayerHeadAccessory(p, accessoryType) {
   }
 }
 
+function updatePlayerMotorcycle(p, ridingMoto) {
+  if (!p) return;
+  if (p.motoMesh && p.group) {
+    p.group.remove(p.motoMesh);
+    p.motoMesh = null;
+  }
+  p.ridingMoto = ridingMoto || null;
+  if (p.ridingMoto && p.group) {
+    const bike = createPlayerMotorcycleMesh(p.ridingMoto.modelIdx || 0, false);
+    p.group.add(bike);
+    p.motoMesh = bike;
+  }
+  if (p.setRidingMoto) {
+    p.setRidingMoto(Boolean(p.ridingMoto));
+  }
+  if (p.id === state.selfId) {
+    state.ridingMoto = p.ridingMoto;
+    const isRiding = Boolean(state.ridingMoto);
+    if (dom.btnMotoHorn) dom.btnMotoHorn.classList.toggle('hidden', !isRiding);
+    if (dom.btnMotoDismount) dom.btnMotoDismount.classList.toggle('hidden', !isRiding);
+    if (!isRiding) {
+      updateMotoEngineHum(motoEngineState, audioEngine.ctx, 0, false);
+    }
+  }
+}
+
+function removeParkedMoto(motoId) {
+  if (!motoId) return;
+  const item = state.parkedMotos.get(motoId);
+  if (!item) return;
+  scene.remove(item.mesh);
+  state.parkedMotos.delete(motoId);
+}
+
+function spawnParkedMoto(m) {
+  if (!m || !m.id) return;
+  removeParkedMoto(m.id);
+  const holder = new THREE.Group();
+  holder.name = `ParkedMoto_${m.id}`;
+  holder.position.set(m.x || 0, 0, m.z || 0);
+  holder.rotation.y = m.rotY || 0;
+  const bike = createPlayerMotorcycleMesh(m.modelIdx || 0, true);
+  holder.add(bike);
+  scene.add(holder);
+  state.parkedMotos.set(m.id, { data: m, mesh: holder });
+}
+
+function syncParkedMotos(list) {
+  const keep = new Set((list || []).map((m) => m.id));
+  for (const [id] of Array.from(state.parkedMotos)) {
+    if (!keep.has(id)) removeParkedMoto(id);
+  }
+  (list || []).forEach(spawnParkedMoto);
+}
+
 function spawnSocialFloatingFx(playerId, symbols) {
   const p = state.players.get(playerId);
   if (!p?.labelEls?.wrap) return;
@@ -3553,10 +4098,19 @@ function spawnSocialFloatingFx(playerId, symbols) {
   });
 }
 
+function isSfxActive() {
+  return Boolean(state.sfxEnabled && state.sfxVolume > 0.01);
+}
+
+function getSfxDestination(ctx) {
+  return ctx?._sfxGain || audioEngine.sfxGain || ctx?.destination;
+}
+
 function playHeartPopSound() {
   const ctx = audioEngine.ctx;
-  if (!state.musicEnabled || !ctx || ctx.state !== 'running') return;
+  if (!isSfxActive() || !ctx || ctx.state !== 'running') return;
   try {
+    const out = getSfxDestination(ctx);
     const now = ctx.currentTime;
     [523.25, 659.25, 783.99].forEach((freq, i) => {
       const osc = ctx.createOscillator();
@@ -3565,7 +4119,7 @@ function playHeartPopSound() {
       osc.frequency.setValueAtTime(freq, now + i * 0.065);
       g.gain.setValueAtTime(0.11, now + i * 0.065);
       g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.065 + 0.24);
-      osc.connect(g).connect(ctx.destination);
+      osc.connect(g).connect(out);
       osc.start(now + i * 0.065);
       osc.stop(now + i * 0.065 + 0.26);
     });
@@ -3615,6 +4169,7 @@ function spawnOrUpdatePlayer(data) {
     setEmote: built.setEmote,
     setSeated: built.setSeated,
     setSwimming: built.setSwimming,
+    setRidingMoto: built.setRidingMoto,
     updateAnim: built.update,
     currentPos: new THREE.Vector3(data.x || 0, data.y || 0, data.z || 59),
     targetPos: new THREE.Vector3(data.x || 0, data.y || 0, data.z || 59),
@@ -3631,6 +4186,11 @@ function spawnOrUpdatePlayer(data) {
     headAccessoryMesh: null,
     propBites: 0,
     seatedChairId: null,
+    isAnnouncer: Boolean(data.isAnnouncer),
+    ferrisSeat: data.ferrisSeat || null,
+    ridingMoto: null,
+    motoMesh: null,
+    motoLean: 0,
     isSpeaking: Boolean(data.isSpeaking),
     labelEls,
     chatExpireAt: 0
@@ -3651,6 +4211,15 @@ function spawnOrUpdatePlayer(data) {
   if (data.seatedChairId) {
     pObj.seatedChairId = data.seatedChairId;
     if (pObj.setSeated) pObj.setSeated(true);
+  }
+  if (data.ferrisSeat) {
+    if (pObj.setSeated) pObj.setSeated(true);
+  }
+  if (data.isAnnouncer) {
+    if (pObj.setSeated) pObj.setSeated(true);
+  }
+  if (data.ridingMoto) {
+    updatePlayerMotorcycle(pObj, data.ridingMoto);
   }
   if (pObj.isSwimming && pObj.setSwimming) {
     pObj.setSwimming(true);
@@ -3746,8 +4315,8 @@ const CONCERT_AUDIO_ZONE = {
   minX: -45,
   maxX: 3.5,
   minZ: -62,
-  maxZ: 6.5,
-  fadeWidth: 6.0
+  maxZ: 28.5,
+  fadeWidth: 9.0
 };
 
 // Feature-detect iOS/iPadOS where HTMLMediaElement.volume is read-only (always 1.0)
@@ -3773,6 +4342,7 @@ const audioEngine = {
   concertGain: null,
   concertPanner: null,
   festivalGain: null,
+  sfxGain: null,
   useWebAudioForMedia: IS_VOLUME_READONLY,
   concertCurVol: 0,
   festivalCurVol: 0,
@@ -4117,6 +4687,11 @@ function initConcertAudio() {
       audioEngine.festivalGain = audioEngine.ctx.createGain();
       audioEngine.festivalGain.gain.value = 0.0;
       audioEngine.festivalGain.connect(audioEngine.ctx.destination);
+
+      audioEngine.sfxGain = audioEngine.ctx.createGain();
+      audioEngine.sfxGain.gain.value = state.sfxEnabled ? state.sfxVolume : 0.0;
+      audioEngine.sfxGain.connect(audioEngine.ctx.destination);
+      audioEngine.ctx._sfxGain = audioEngine.sfxGain;
     } catch (err) {
       console.warn('AudioContext init warning:', err);
       audioEngine.useWebAudioForMedia = false;
@@ -4254,7 +4829,7 @@ function updateSpatialConcertAudio(playerPos, dt = 0.016) {
   let targetFestivalVol = 0;
   let concertZoneWeight = 0;
 
-  if (state.musicEnabled) {
+  if (state.musicEnabled && state.musicVolume > 0.005) {
     // Distance outside the Concert Stage Zone rectangle (0 = inside red box, >=fadeWidth = fully outside)
     const dx = Math.max(0, CONCERT_AUDIO_ZONE.minX - playerPos.x, playerPos.x - CONCERT_AUDIO_ZONE.maxX);
     const dz = Math.max(0, CONCERT_AUDIO_ZONE.minZ - playerPos.z, playerPos.z - CONCERT_AUDIO_ZONE.maxZ);
@@ -4262,15 +4837,18 @@ function updateSpatialConcertAudio(playerPos, dt = 0.016) {
     const t = THREE.MathUtils.clamp(distOutside / CONCERT_AUDIO_ZONE.fadeWidth, 0, 1);
     const smoothT = t * t * (3 - 2 * t);
 
-    // Zone 1 (Concert Stage): full inside red box (extra punch near front of stage), fades smoothly to 0 outside
+    // Zone 1 (Concert Stage): extends all along West side so Ferris Wheel riders hear live stage music clearly!
     concertZoneWeight = 1 - smoothT;
     const distToStage = playerPos.distanceTo(CONCERT_POS);
-    const proximityBoost = 0.65 + 0.35 * Math.max(0, 1 - Math.max(0, distToStage - 8) / 48);
+    const proximityBoost = 0.76 + 0.24 * Math.max(0, 1 - Math.max(0, distToStage - 8) / 86);
     const horrorDuck = hauntedForestState ? hauntedForestState.musicDuckFactor : 1.0;
-    targetConcertVol = concertZoneWeight * proximityBoost * 0.56 * horrorDuck;
+    const fwDuck = performance.now() < state.fireworkDuckUntil ? 0.42 : 1.0;
+    const masterMusic = THREE.MathUtils.clamp(state.musicVolume, 0, 1);
+    targetConcertVol = concertZoneWeight * proximityBoost * 0.56 * horrorDuck * fwDuck * masterMusic;
 
-    // Zone 2 (Festival Ambient): 0% inside concert red box, fades smoothly to clear comfortable ambient outside
-    targetFestivalVol = audioEngine.festivalTracks.length > 0 ? smoothT * 0.34 * horrorDuck : 0;
+    // Zone 2 (Festival Ambient): stays ON alongside PA announcements per user design!
+    targetFestivalVol =
+      audioEngine.festivalTracks.length > 0 ? smoothT * 0.36 * horrorDuck * fwDuck * masterMusic : 0;
   }
 
   // Smooth exponential volume lerp
@@ -4279,6 +4857,8 @@ function updateSpatialConcertAudio(playerPos, dt = 0.016) {
   audioEngine.festivalCurVol += (targetFestivalVol - audioEngine.festivalCurVol) * alpha;
   const cVol = audioEngine.concertCurVol < 0.002 ? 0 : THREE.MathUtils.clamp(audioEngine.concertCurVol, 0, 1);
   const fVol = audioEngine.festivalCurVol < 0.002 ? 0 : THREE.MathUtils.clamp(audioEngine.festivalCurVol, 0, 1);
+  document.body.dataset.concertVol = cVol.toFixed(3);
+  document.body.dataset.festivalVol = fVol.toFixed(3);
 
   if (audioEngine.useWebAudioForMedia && audioEngine.ctx && audioEngine.concertGain) {
     // iOS/iPadOS path (HTMLMediaElement.volume is read-only -> control via Web Audio GainNodes)
@@ -4562,14 +5142,24 @@ function updateProximityVoiceVolumes() {
   const self = state.players.get(state.selfId);
   if (!self) return;
 
+  const voiceMaster = state.voiceAudioEnabled ? THREE.MathUtils.clamp(state.voiceVolume, 0, 1) : 0;
+  const selfRightPaGain = getAnnouncerRightSideGain(self.currentPos.x);
+
   for (const [peerId, entry] of voiceState.peers) {
     const peerPlayer = state.players.get(peerId);
     if (!peerPlayer) continue;
-    const dist = self.currentPos.distanceTo(peerPlayer.currentPos);
-    // 0-15m full (1.0), 15-28m linear fade to 0.0, >=28m silent (0.0)
-    let gainVal = 1.0;
-    if (dist > 15) {
-      gainVal = Math.max(0, 1 - (dist - 15) / (28 - 15));
+    let gainVal = 0;
+    // If peer is the active Announcer and we're in the PA Horn broadcast zone, mute raw WebRTC so we hear the PA Horn cleanly without double audio!
+    if (peerId === state.announcerId && selfRightPaGain > 0.05) {
+      gainVal = 0;
+    } else if (voiceMaster > 0.005) {
+      const dist = self.currentPos.distanceTo(peerPlayer.currentPos);
+      // 0-15m full (1.0), 15-28m linear fade to 0.0, >=28m silent (0.0)
+      gainVal = 1.0;
+      if (dist > 15) {
+        gainVal = Math.max(0, 1 - (dist - 15) / (28 - 15));
+      }
+      gainVal *= voiceMaster;
     }
     if (entry.gainNode && audioEngine.ctx) {
       entry.gainNode.gain.setTargetAtTime(gainVal, audioEngine.ctx.currentTime, 0.06);
@@ -4581,15 +5171,20 @@ function updateProximityVoiceVolumes() {
 
 function syncPttButtonVisuals() {
   const active = state.isSpeaking;
+  const isAnn = Boolean(state.announcerId && state.announcerId === state.selfId);
   dom.btnPtt.classList.toggle('active', active);
   dom.btnPtt.setAttribute('aria-pressed', String(active));
   const txt = dom.btnPtt.querySelector('.ptt-text');
   if (txt) {
-    txt.textContent = active
-      ? state.voiceLockedOn
-        ? 'กำลังพูด (แตะปิด)'
-        : 'กำลังพูด...'
-      : 'แตะ/กดค้างพูด (V)';
+    if (isAnn) {
+      txt.textContent = active ? '📢 กำลังประกาศ (แตะปิด)' : '📢 เปิดไมค์ประกาศ (V)';
+    } else {
+      txt.textContent = active
+        ? state.voiceLockedOn
+          ? 'กำลังพูด (แตะปิด)'
+          : 'กำลังพูด...'
+        : 'แตะ/กดค้างพูด (V)';
+    }
   }
 }
 
@@ -4618,12 +5213,29 @@ async function setPushToTalk(active, { autoLockAfterGrant = false } = {}) {
     });
   }
 
+  // Live PA Horn Broadcast when seated at โต๊ะมัคนายก!
+  if (active && state.announcerId === state.selfId && voiceState.localStream) {
+    if (!audioEngine.ctx) initConcertAudio();
+    playPaChimeSound(audioEngine.ctx, state.voiceAudioEnabled ? state.voiceVolume * 0.55 : 0);
+    startPaVoiceStreamer(paVoiceStreamer, audioEngine.ctx, voiceState.localStream, (sr, pcmBuf) => {
+      if (socket && state.announcerId === state.selfId && state.isSpeaking) {
+        socket.emit('announcer:voicePcm', { sr, pcm: pcmBuf });
+      }
+    });
+  } else {
+    stopPaVoiceStreamer(paVoiceStreamer);
+  }
+
   syncPttButtonVisuals();
 
   const self = state.players.get(state.selfId);
   if (self) {
     self.isSpeaking = active;
     self.labelEls.speaking.classList.toggle('hidden', !active);
+  }
+  if (state.announcerId === state.selfId) {
+    state.paLiveSpeaking = active;
+    refreshPaBannerState();
   }
   if (socket) {
     socket.emit('voice:speaking', { speaking: active });
@@ -4746,53 +5358,96 @@ function updateCoinsUI(coins) {
   }
 }
 
+function showLobbyJoinError(msg) {
+  if (!dom.lobbyErrorMsg) return;
+  if (msg) {
+    dom.lobbyErrorMsg.textContent = msg;
+    dom.lobbyErrorMsg.classList.remove('hidden');
+  } else {
+    dom.lobbyErrorMsg.textContent = '';
+    dom.lobbyErrorMsg.classList.add('hidden');
+  }
+}
+
+function sendPlayerJoinRequest() {
+  if (!socket) return;
+  if (dom.btnEnterWorld) {
+    dom.btnEnterWorld.disabled = true;
+    dom.btnEnterWorld.textContent = 'กำลังเข้าสู่งานลอยกระทง... 🏮';
+  }
+  showLobbyJoinError('');
+
+  socket.emit(
+    'player:join',
+    {
+      nickname: state.nickname,
+      avatar: state.avatarConfig,
+      lowGraphics: state.lowGraphics,
+      roomId: state.selectedRoomId || 'auto',
+      clientToken: state.clientToken
+    },
+    (res) => {
+      if (dom.btnEnterWorld) {
+        dom.btnEnterWorld.disabled = false;
+        dom.btnEnterWorld.textContent = 'เข้าสู่งานลอยกระทง 🏮';
+      }
+      if (!res?.ok) {
+        state.joined = false;
+        dom.lobbyOverlay.classList.remove('hidden');
+        dom.hud.classList.add('hidden');
+        const errMsg =
+          res?.message || '⚠️ ชื่อนี้มีผู้ใช้งานแล้ว กรุณาตั้งชื่ออื่นที่ไม่ซ้ำครับ';
+        showLobbyJoinError(errMsg);
+        dom.inputNickname?.focus();
+        dom.inputNickname?.select();
+        return;
+      }
+
+      showLobbyJoinError('');
+      saveProfileToStorage();
+      state.selfId = res.selfId;
+      state.roomId = res.roomId || 'room-1';
+      state.roomName = res.roomName || 'ลานงาน 1';
+      state.roomMax = res.roomMax || 50;
+      state.joined = true;
+      state.hunger = 100;
+      state.lowHungerNotified = false;
+      updateHungerUI();
+      dom.lobbyOverlay.classList.add('hidden');
+      dom.hud.classList.remove('hidden');
+      dom.hudNickname.textContent = state.nickname;
+      if (typeof res.coins === 'number') updateCoinsUI(res.coins);
+      updateOnlineCounter();
+
+      updateAudioUnlockBanner();
+      if (voiceSyncTimer) clearInterval(voiceSyncTimer);
+      voiceSyncTimer = setInterval(syncProximityVoicePeers, 2000);
+      syncProximityVoicePeers();
+    }
+  );
+}
+
 function connectSocketAndJoin() {
+  if (socket && socket.connected) {
+    sendPlayerJoinRequest();
+    return;
+  }
+  if (socket) {
+    socket.connect();
+    return;
+  }
+
   socket = window.io(SERVER_URL || undefined, {
     transports: ['websocket', 'polling']
   });
 
   socket.on('connect', () => {
-    socket.emit(
-      'player:join',
-      {
-        nickname: state.nickname,
-        avatar: state.avatarConfig,
-        lowGraphics: state.lowGraphics,
-        roomId: state.selectedRoomId || 'auto'
-      },
-      (res) => {
-        if (res?.ok) {
-          state.selfId = res.selfId;
-          state.roomId = res.roomId || 'room-1';
-          state.roomName = res.roomName || 'ลานงาน 1';
-          state.roomMax = res.roomMax || 50;
-          state.joined = true;
-          dom.lobbyOverlay.classList.add('hidden');
-          dom.hud.classList.remove('hidden');
-          dom.hudNickname.textContent = state.nickname;
-          if (typeof res.coins === 'number') updateCoinsUI(res.coins);
-          updateOnlineCounter();
-
-          // Release the Lobby's 2nd WebGL context once to free mobile VRAM immediately
-          if (!previewDisposed) {
-            previewDisposed = true;
-            try {
-              previewRenderer.dispose();
-              previewRenderer.forceContextLoss();
-            } catch {}
-          }
-
-          updateAudioUnlockBanner();
-          if (voiceSyncTimer) clearInterval(voiceSyncTimer);
-          voiceSyncTimer = setInterval(syncProximityVoicePeers, 2000);
-          syncProximityVoicePeers();
-        }
-      }
-    );
+    sendPlayerJoinRequest();
   });
 
   socket.on('disconnect', () => {
     state.voiceLockedOn = false;
+    stopPaVoiceStreamer(paVoiceStreamer);
     setPushToTalk(false);
     for (const [peerId] of Array.from(voiceState.peers)) {
       cleanupPeerConnection(peerId);
@@ -4801,6 +5456,9 @@ function connectSocketAndJoin() {
 
   socket.on('world:init', (data) => {
     state.selfId = data.selfId;
+    if (typeof data.serverNow === 'number') {
+      state.serverClockOffset = data.serverNow - Date.now();
+    }
     if (data.roomId) state.roomId = data.roomId;
     if (data.roomName) state.roomName = data.roomName;
     if (data.roomMax) state.roomMax = data.roomMax;
@@ -4823,8 +5481,18 @@ function connectSocketAndJoin() {
     if (pondCoinsState && Array.isArray(data.pondCoins)) {
       syncPondCoins(pondCoinsState, data.pondCoins);
     }
+    if (Array.isArray(data.parkedMotos)) {
+      syncParkedMotos(data.parkedMotos);
+    }
+    if (data.motoQuota) {
+      state.motoQuota = data.motoQuota;
+    }
+    state.announcerId = data.announcerId || null;
+    state.announcerName = data.announcerName || null;
+    syncAnnouncerHudBar();
     if (data.contestSummary) {
       state.contestVotes = data.contestSummary;
+      updateContest3DScoreboards();
     }
     if (Array.isArray(data.stageTracks) && data.stageTracks.length > 0) {
       audioEngine.tracks = data.stageTracks;
@@ -4905,7 +5573,7 @@ function connectSocketAndJoin() {
     if (!d?.toId) return;
     spawnSocialFloatingFx(d.toId, ['💰', `+${d.amount} 💰`, '✨']);
     if (d.toId === state.selfId) {
-      playCoinCollectSound(audioEngine.ctx, state.musicEnabled, d.amount >= 5 ? 5 : 1);
+      playCoinCollectSound(audioEngine.ctx, isSfxActive(), d.amount >= 5 ? 5 : 1);
       showToast(`🎁 ${d.fromName} มอบเหรียญให้คุณ +${d.amount} 💰!`);
     } else if (d.fromId === state.selfId) {
       showToast(`🎁 มอบ ${d.amount} 💰 ให้ ${d.toName} เรียบร้อยแล้ว!`);
@@ -4974,14 +5642,143 @@ function connectSocketAndJoin() {
 
   socket.on('fireworks:launched', (fw) => {
     if (!fw || !fireworksState) return;
+    if (!audioEngine.ctx && audioEngine.started) {
+      initConcertAudio();
+    }
+    state.fireworkDuckUntil = performance.now() + (fw.style === 'finale' ? 4200 : 2800);
     launchFireworkShow(
       scene,
       fireworksState,
       fw.style,
       audioEngine.ctx,
-      state.musicEnabled,
+      isSfxActive(),
       state.lowGraphics
     );
+  });
+
+  socket.on('player:ferrisUpdated', (d) => {
+    const p = state.players.get(d?.id);
+    if (!p) return;
+    p.ferrisSeat = d.ferrisSeat || null;
+    if (p.setSeated) {
+      p.setSeated(Boolean(p.ferrisSeat || p.seatedChairId));
+    }
+    if (!p.ferrisSeat && typeof d.x === 'number' && typeof d.z === 'number') {
+      p.targetPos.set(d.x, 0, d.z);
+      p.currentPos.set(d.x, 0, d.z);
+      p.group.position.copy(p.currentPos);
+    }
+    if (d.id === state.selfId) {
+      state.ferrisSeat = p.ferrisSeat;
+    }
+  });
+
+  socket.on('player:motoUpdated', (d) => {
+    const p = state.players.get(d?.id);
+    if (p) updatePlayerMotorcycle(p, d.ridingMoto);
+  });
+
+  socket.on('moto:parked', (m) => {
+    spawnParkedMoto(m);
+  });
+
+  socket.on('moto:unparked', (d) => {
+    removeParkedMoto(d?.motoId);
+  });
+
+  socket.on('moto:quotaUpdated', (q) => {
+    if (q && typeof q.max === 'number') {
+      state.motoQuota = q;
+    }
+  });
+
+  socket.on('player:motoHonked', (d) => {
+    if (!d?.id) return;
+    showPlayerChatBubble(d.id, '📯 ปี๊น ๆ!');
+    const self = state.players.get(state.selfId);
+    let vol = 0.9;
+    if (self && d.id !== state.selfId && typeof d.x === 'number' && typeof d.z === 'number') {
+      const dist = Math.hypot(self.currentPos.x - d.x, self.currentPos.z - d.z);
+      vol = Math.max(0, 1 - dist / 42) * 0.85;
+    }
+    if (isSfxActive()) {
+      playMotoHornSound(audioEngine.ctx, vol);
+    }
+  });
+
+  socket.on('announcer:updated', (d) => {
+    const prevAnnouncerId = state.announcerId;
+    state.announcerId = d?.announcerId || null;
+    state.announcerName = d?.announcerName || null;
+    if (!state.announcerId) {
+      state.paLiveSpeaking = false;
+    }
+
+    if (prevAnnouncerId && prevAnnouncerId !== state.announcerId) {
+      const prevP = state.players.get(prevAnnouncerId);
+      if (prevP) {
+        prevP.isAnnouncer = false;
+        if (prevP.setSeated) prevP.setSeated(Boolean(prevP.seatedChairId || prevP.ferrisSeat));
+      }
+      if (prevAnnouncerId === state.selfId) {
+        stopPaVoiceStreamer(paVoiceStreamer);
+      }
+    }
+
+    if (state.announcerId) {
+      const annP = state.players.get(state.announcerId);
+      if (annP) {
+        annP.isAnnouncer = true;
+        if (typeof d.x === 'number' && typeof d.z === 'number') {
+          annP.targetPos.set(d.x, 0, d.z);
+          annP.currentPos.set(d.x, 0, d.z);
+          annP.group.position.copy(annP.currentPos);
+        }
+        if (typeof d.rotY === 'number') {
+          annP.targetRotY = d.rotY;
+          annP.currentRotY = d.rotY;
+          annP.group.rotation.y = d.rotY;
+        }
+        annP.isMoving = false;
+        annP.isRunning = false;
+        if (annP.setSeated) annP.setSeated(true);
+      }
+    }
+
+    syncAnnouncerHudBar();
+    refreshPaBannerState();
+  });
+
+  socket.on('announcer:banner', (d) => {
+    if (!d?.text) return;
+    if (announcerDeskState) {
+      announcerDeskState.broadcastPulseUntil = performance.now() + 6200;
+    }
+    const self = state.players.get(state.selfId);
+    const rightGain = self ? getAnnouncerRightSideGain(self.currentPos.x) : 1;
+    if (rightGain <= 0.02) return; // Audible & visible ONLY on the Right Side of the fair!
+
+    if (!audioEngine.ctx && audioEngine.started) {
+      initConcertAudio();
+    }
+    const vVol = state.voiceAudioEnabled ? state.voiceVolume : 0;
+    playPaChimeSound(audioEngine.ctx, vVol * rightGain);
+    showPaTextBanner(d.senderName || 'มัคนายก', d.text, 6500);
+  });
+
+  socket.on('announcer:voicePcm', (d) => {
+    if (!d?.pcm) return;
+    if (announcerDeskState) {
+      announcerDeskState.broadcastPulseUntil = performance.now() + 450;
+    }
+    const self = state.players.get(state.selfId);
+    const rightGain = self ? getAnnouncerRightSideGain(self.currentPos.x) : 0;
+    if (rightGain <= 0.02 || !state.voiceAudioEnabled || state.voiceVolume <= 0.01) return;
+
+    if (!audioEngine.ctx && audioEngine.started) {
+      initConcertAudio();
+    }
+    playPaVoicePcmPacket(audioEngine.ctx, d.pcm, d.sr || 12000, state.voiceVolume * rightGain);
   });
 
   socket.on('stage:trackChanged', (trackData) => {
@@ -4995,11 +5792,26 @@ function connectSocketAndJoin() {
     }
   });
 
+  socket.on('chat:rejected', (d) => {
+    showToast(d?.message || '🚫 ข้อความมีคำไม่สุภาพ ไม่สามารถส่งลงแชตงานวัดได้ครับ');
+  });
+
   socket.on('voice:speaking', (d) => {
     const p = state.players.get(d.id);
     if (!p) return;
     p.isSpeaking = Boolean(d.speaking);
     p.labelEls.speaking.classList.toggle('hidden', !p.isSpeaking);
+    if (d.id === state.announcerId) {
+      state.paLiveSpeaking = p.isSpeaking;
+      if (p.isSpeaking) {
+        const self = state.players.get(state.selfId);
+        const rightGain = self ? getAnnouncerRightSideGain(self.currentPos.x) : 0;
+        if (rightGain > 0.02 && state.voiceAudioEnabled) {
+          playPaChimeSound(audioEngine.ctx, state.voiceVolume * rightGain * 0.55);
+        }
+      }
+      refreshPaBannerState();
+    }
   });
 
   socket.on('player:waved', (d) => {
@@ -5027,6 +5839,7 @@ function connectSocketAndJoin() {
   socket.on('contest:updated', (summary) => {
     if (!summary) return;
     state.contestVotes = summary;
+    updateContest3DScoreboards();
     if (dom.dialogContestVote?.open) {
       renderContestVoteUI();
     }
@@ -5166,6 +5979,9 @@ function drawMinimap() {
   minimapCtx.fillStyle = '#fde047';
   minimapCtx.fillRect(mapX(25), mapY(7.5), mapW(12), mapH(11));
 
+  // Giant Ferris Wheel in Garden B (-23.5, 19.5)
+  drawFerrisWheelMinimap(minimapCtx, mapX, mapY);
+
   // Pier (35.4, -12)
   minimapCtx.fillStyle = '#b45309';
   minimapCtx.fillRect(mapX(33.5), mapY(-14.5), mapW(4), mapH(5));
@@ -5185,6 +6001,8 @@ function drawMinimap() {
   drawPhotoBoothMinimap(minimapCtx, mapX, mapY, mapW, mapH);
   drawConcertChairsMinimap(minimapCtx, mapX, mapY, mapW, mapH);
   drawFireworksMinimap(minimapCtx, mapX, mapY);
+  drawAnnouncerMinimap(minimapCtx, mapX, mapY);
+  drawBouncyCastleMinimap(minimapCtx, mapX, mapY, mapW, mapH);
 
   // Remote online players (blue dots)
   for (const [id, p] of state.players) {
@@ -5263,7 +6081,8 @@ function isTypingOrModalOpen() {
 
 function playTempleBell() {
   const ctx = audioEngine.ctx;
-  if (!ctx || ctx.state !== 'running') return;
+  if (!isSfxActive() || !ctx || ctx.state !== 'running') return;
+  const out = getSfxDestination(ctx);
   const now = ctx.currentTime;
   const freqs = [528, 1056, 1584];
   freqs.forEach((f, idx) => {
@@ -5273,10 +6092,375 @@ function playTempleBell() {
     osc.frequency.setValueAtTime(f, now);
     g.gain.setValueAtTime(0.14 / (idx + 1), now);
     g.gain.exponentialRampToValueAtTime(0.0008, now + 2.2);
-    osc.connect(g).connect(ctx.destination);
+    osc.connect(g).connect(out);
     osc.start(now);
     osc.stop(now + 2.3);
   });
+}
+
+function updateFerrisCamButtonUI() {
+  if (!dom.btnFerrisCam) return;
+  const riding = Boolean(state.ferrisSeat);
+  dom.btnFerrisCam.classList.toggle('hidden', !riding);
+  if (riding && dom.ferrisCamLabel) {
+    dom.ferrisCamLabel.textContent = state.ferrisFirstPerson ? 'มุมนอก 🎥' : 'มุมสายตา 👁️';
+  }
+}
+
+function toggleFerrisCameraMode() {
+  if (!state.ferrisSeat) return;
+  state.ferrisFirstPerson = !state.ferrisFirstPerson;
+  const self = state.players.get(state.selfId);
+  if (self?.group) {
+    self.group.visible = !state.ferrisFirstPerson;
+  }
+  if (!state.ferrisFirstPerson) {
+    state.cameraOrbit.distance = Math.max(state.cameraOrbit.distance, 12.5);
+  }
+  updateFerrisCamButtonUI();
+  showToast(
+    state.ferrisFirstPerson
+      ? '👁️ สลับเป็นมุมมองสายตาจริงในกระเช้า (ลากเมาส์ชมวิว 360°)'
+      : '🎥 สลับเป็นมุมมองภายนอก (มองเห็นตัวละครนั่งในกระเช้า)'
+  );
+}
+
+if (dom.btnFerrisCam) {
+  dom.btnFerrisCam.addEventListener('click', toggleFerrisCameraMode);
+}
+
+function boardFerrisWheel() {
+  if (!socket || state.ferrisSeat) return;
+  unlockAndResumeAudio(false);
+  socket.emit('ferris:board', {}, (ack) => {
+    if (ack && ack.ok === false) {
+      if (ack.error === 'NOT_ENOUGH_COINS') {
+        showToast('💰 เหรียญไม่พอ! ขึ้นชิงช้าสวรรค์ต้องใช้ 5 เหรียญ — ไปว่ายน้ำเก็บเหรียญในสระได้เลย 🏊');
+      } else if (ack.error === 'FULL') {
+        showToast('🎡 กระเช้าเต็มครบ 16 ที่นั่งพอดี รอเพื่อนลงสักครู่นะครับ!');
+      }
+      return;
+    }
+    if (ack?.ferrisSeat) {
+      state.ferrisSeat = ack.ferrisSeat;
+      state.ferrisFirstPerson = true;
+      // Aim initial 1st-person gaze right across the festival skyline (Concert, Market, Tunnels, Ubosot & Pond!)
+      state.cameraOrbit.yaw = -0.82;
+      state.cameraOrbit.pitch = 0.14;
+      const self = state.players.get(state.selfId);
+      if (self) {
+        self.ferrisSeat = ack.ferrisSeat;
+        if (self.setSeated) self.setSeated(true);
+      }
+      updateFerrisCamButtonUI();
+      showToast(
+        `🎡 นั่งกระเช้าที่ ${ack.ferrisSeat.cabin + 1} (-5 💰) แล้ว! ลากเมาส์ชมวิว 360° • กด C สลับมุมมอง • กด E เพื่อลง`
+      );
+    }
+  });
+}
+
+function leaveFerrisWheel() {
+  if (!socket || !state.ferrisSeat) return;
+  socket.emit('ferris:leave', {}, () => {
+    state.ferrisSeat = null;
+    const self = state.players.get(state.selfId);
+    if (self) {
+      self.ferrisSeat = null;
+      if (self.group) self.group.visible = true;
+      if (self.setSeated) self.setSeated(false);
+    }
+    state.cameraOrbit.pitch = THREE.MathUtils.clamp(state.cameraOrbit.pitch, -0.35, 0.65);
+    state.cameraOrbit.distance = Math.min(state.cameraOrbit.distance, 12.0);
+    updateFerrisCamButtonUI();
+    showToast('🎡 ลงจากชิงช้าสวรรค์เรียบร้อยแล้ว!');
+  });
+}
+
+function rentMotorcycle() {
+  if (!socket || state.ridingMoto) return;
+  unlockAndResumeAudio(false);
+  socket.emit('moto:rent', {}, (ack) => {
+    if (ack && ack.ok === false) {
+      if (ack.error === 'MOTO_LIMIT_REACHED') {
+        showToast(`🏍️ มอเตอร์ไซค์ถูกเช่าครบ ${ack.max || 10}/${ack.max || 10} คันแล้วครับ รอเพื่อนคืนรถสักครู่นะ!`);
+        return;
+      }
+      if (ack.error === 'NOT_ENOUGH_COINS') {
+        showToast('💰 เหรียญไม่พอ! เช่ามอเตอร์ไซค์ต้องใช้ 5 เหรียญ — ไปว่ายน้ำเก็บเหรียญในสระได้เลย 🏊');
+        return;
+      }
+      return;
+    }
+    if (ack?.ridingMoto) {
+      const self = state.players.get(state.selfId);
+      if (self) {
+        updatePlayerMotorcycle(self, ack.ridingMoto);
+        // Nudge onto open aisle/road beside the lot so rider never spawns stuck on a parked row!
+        if (self.currentPos.x < 0) {
+          self.currentPos.set(-8.6, 0, 46.0);
+        } else {
+          self.currentPos.set(5.4, 0, 48.0);
+        }
+        self.currentRotY = Math.PI; // Facing North into the festival!
+      }
+      const bikeMeta = MOTO_CATALOG[ack.ridingMoto.modelIdx % MOTO_CATALOG.length];
+      if (isSfxActive()) playMotoHornSound(audioEngine.ctx, 0.75);
+      showToast(`🏍️ เช่า ${bikeMeta?.label || 'มอเตอร์ไซค์'} (-5 💰) แล้ว! กด B บีบแตร • Shift เร่งเครื่อง • G ลงจอด`);
+    }
+  });
+}
+
+function returnMotorcycleToLot() {
+  if (!socket) return;
+  socket.emit('moto:return', {}, () => {
+    const self = state.players.get(state.selfId);
+    if (self) updatePlayerMotorcycle(self, null);
+    showToast('🅿️ คืนมอเตอร์ไซค์เข้าลานจอดเรียบร้อยแล้ว (คืนสิทธิ์ให้เพื่อนเช่าต่อได้!)');
+  });
+}
+
+function dismountMotorcycle() {
+  if (!socket || !state.ridingMoto) return;
+  socket.emit('moto:dismount', {}, (ack) => {
+    const self = state.players.get(state.selfId);
+    if (self) {
+      updatePlayerMotorcycle(self, null);
+      // Step cleanly off to the left of the parked bike so rider stands right beside it!
+      const rotY = self.currentRotY || 0;
+      self.currentPos.x -= Math.cos(rotY) * 0.95;
+      self.currentPos.z += Math.sin(rotY) * 0.95;
+      resolvePlayerCollisions(self.currentPos, 0.48);
+    }
+    if (ack?.ok) {
+      showToast('🅿️ จอดมอเตอร์ไซค์ไว้ตรงนี้แล้ว! เดินกลับมาใกล้รถกด E ขึ้นขี่ต่อได้ฟรี 🏍️');
+    }
+  });
+}
+
+function remountParkedMotorcycle(motoId) {
+  if (!socket || state.ridingMoto) return;
+  unlockAndResumeAudio(false);
+  socket.emit('moto:remount', { motoId }, (ack) => {
+    if (!ack?.ok) return;
+    const self = state.players.get(state.selfId);
+    if (self) {
+      if (typeof ack.x === 'number' && typeof ack.z === 'number') {
+        self.currentPos.set(ack.x, 0, ack.z);
+        self.currentRotY = ack.rotY || 0;
+      }
+      updatePlayerMotorcycle(self, ack.ridingMoto);
+    }
+    if (isSfxActive()) playMotoHornSound(audioEngine.ctx, 0.7);
+    showToast('🏍️ ขึ้นขี่มอเตอร์ไซค์ที่จอดไว้แล้ว! กด B บีบแตร • G ลงจอด');
+  });
+}
+
+// ============================================================================
+// TEMPLE ANNOUNCER DESK & PA HORN BANNER CONTROLS (โต๊ะมัคนายกประกาศงานวัด)
+// ============================================================================
+
+function syncAnnouncerHudBar() {
+  // Voice-only announcer mode (no bottom text box) — sync PTT button label while seated!
+  syncPttButtonVisuals();
+}
+
+function showPaTextBanner(speakerName, text, durationMs = 6500) {
+  if (!dom.paAnnounceBanner) return;
+  if (dom.paBannerSpeaker) {
+    dom.paBannerSpeaker.textContent = `📢 เสียงตามสายจากมัคนายก ${speakerName}`;
+  }
+  if (dom.paBannerText) {
+    dom.paBannerText.textContent = `"${text}"`;
+  }
+  state.paBannerExpireAt = performance.now() + durationMs;
+  dom.paAnnounceBanner.classList.remove('hidden');
+}
+
+function refreshPaBannerState() {
+  if (!dom.paAnnounceBanner) return;
+  const self = state.players.get(state.selfId);
+  const rightGain = self ? getAnnouncerRightSideGain(self.currentPos.x) : 0;
+
+  if (rightGain <= 0.02) {
+    dom.paAnnounceBanner.classList.add('hidden');
+    return;
+  }
+
+  if (state.paLiveSpeaking && state.announcerId) {
+    const spkName = state.announcerName || state.players.get(state.announcerId)?.nickname || 'มัคนายก';
+    if (dom.paBannerSpeaker) {
+      dom.paBannerSpeaker.textContent = `🎙️ มัคนายก ${spkName} กำลังประกาศสดออกไมค์`;
+    }
+    if (dom.paBannerText && performance.now() >= state.paBannerExpireAt) {
+      dom.paBannerText.textContent = 'กำลังกระจายเสียงผ่านลำโพงฮอร์นฝั่งขวาของงาน...';
+    }
+    dom.paAnnounceBanner.classList.remove('hidden');
+    return;
+  }
+
+  if (performance.now() < state.paBannerExpireAt) {
+    dom.paAnnounceBanner.classList.remove('hidden');
+  } else {
+    dom.paAnnounceBanner.classList.add('hidden');
+  }
+}
+
+function sitAtAnnouncerDesk() {
+  if (!socket) return;
+  unlockAndResumeAudio(false);
+  socket.emit('announcer:sit', {}, (ack) => {
+    if (!ack?.ok) {
+      if (ack?.error === 'OCCUPIED') {
+        showToast(`🎙️ ขณะนี้ ${ack.currentName || 'เพื่อน'} กำลังนั่งเป็นมัคนายกอยู่ครับ รอคิวสักครู่นะ!`);
+      }
+      return;
+    }
+    const self = state.players.get(state.selfId);
+    if (self) {
+      self.isAnnouncer = true;
+      self.currentPos.set(ack.x ?? ANNOUNCER_DESK_CONFIG.seatX, 0, ack.z ?? ANNOUNCER_DESK_CONFIG.seatZ);
+      self.currentRotY = ack.rotY ?? ANNOUNCER_DESK_CONFIG.seatRotY;
+      self.isMoving = false;
+      self.isRunning = false;
+      self.group.position.copy(self.currentPos);
+      self.group.rotation.y = self.currentRotY;
+      if (self.setSeated) self.setSeated(true);
+    }
+    state.announcerId = state.selfId;
+    state.announcerName = state.nickname;
+    syncAnnouncerHudBar();
+    // Auto-open live PA mic immediately on sit so announcer can speak right away!
+    state.voiceLockedOn = true;
+    setPushToTalk(true, { autoLockAfterGrant: true }).then((micOk) => {
+      if (micOk) {
+        showToast('🎙️ นั่งโต๊ะมัคนายกแล้ว! ไมค์เปิดอยู่ พูดประกาศออกลำโพงฝั่งขวาได้เลย (กด E หรือเดินออกเพื่อลุก)');
+      } else {
+        showToast('🎙️ นั่งโต๊ะมัคนายกแล้ว! กรุณากดอนุญาตไมค์เพื่อพูดประกาศออกลำโพงฝั่งขวา (กด E เพื่อลุก)');
+      }
+    });
+  });
+}
+
+function leaveAnnouncerDesk() {
+  if (!socket || state.announcerId !== state.selfId) return;
+  stopPaVoiceStreamer(paVoiceStreamer);
+  if (state.isSpeaking || state.voiceLockedOn) {
+    state.voiceLockedOn = false;
+    setPushToTalk(false);
+  }
+  socket.emit('announcer:leave', {}, (ack) => {
+    state.announcerId = null;
+    state.announcerName = null;
+    state.paLiveSpeaking = false;
+    const self = state.players.get(state.selfId);
+    if (self) {
+      self.isAnnouncer = false;
+      if (self.setSeated) self.setSeated(false);
+      self.currentPos.set(ack?.x ?? ANNOUNCER_DESK_CONFIG.standX, 0, ack?.z ?? ANNOUNCER_DESK_CONFIG.standZ);
+      resolvePlayerCollisions(self.currentPos, 0.48);
+      self.group.position.copy(self.currentPos);
+    }
+    syncAnnouncerHudBar();
+    refreshPaBannerState();
+    showToast('🎙️ ลุกจากโต๊ะมัคนายกและปิดไมค์ประกาศแล้ว');
+  });
+}
+
+function honkMotorcycle() {
+  if (!socket || !state.ridingMoto) return;
+  unlockAndResumeAudio(false);
+  socket.emit('moto:honk');
+}
+
+if (dom.btnMotoHorn) {
+  dom.btnMotoHorn.addEventListener('click', honkMotorcycle);
+}
+if (dom.btnMotoDismount) {
+  dom.btnMotoDismount.addEventListener('click', dismountMotorcycle);
+}
+
+function syncBouncyHudUI() {
+  const inside = Boolean(state.inBouncyCastle && state.joined);
+  if (dom.bouncyTimerPill) dom.bouncyTimerPill.classList.toggle('hidden', !inside || state.photoMode);
+  if (dom.btnBouncyJump) dom.btnBouncyJump.classList.toggle('hidden', !inside);
+  if (dom.btnBouncyExit) dom.btnBouncyExit.classList.toggle('hidden', !inside);
+  document.body.dataset.inBouncy = inside ? '1' : '0';
+}
+
+function enterBouncyCastle() {
+  if (!socket || state.inBouncyCastle) return;
+  unlockAndResumeAudio(false);
+  socket.emit('bouncy:enter', {}, (ack) => {
+    if (!ack?.ok) {
+      if (ack?.error === 'NOT_ENOUGH_COINS') {
+        showToast('💰 เหรียญไม่พอ! เข้าเล่นบ้านลมต้องใช้ 5 เหรียญ — ไปว่ายน้ำเก็บเหรียญในสระได้เลย 🏊');
+      }
+      return;
+    }
+    const self = state.players.get(state.selfId);
+    const spawn = getBouncySpawnWorld();
+    state.inBouncyCastle = true;
+    state.bouncyEndsAt = performance.now() + (ack.durationMs || BOUNCY_CASTLE_CONFIG.durationMs);
+    bouncyPhys.vy = 4.2;
+    bouncyPhys.onGround = false;
+    bouncyPhys.sliding = false;
+    bouncyPhys.autoRebounds = 0;
+
+    if (self) {
+      if (state.ridingMoto) updatePlayerMotorcycle(self, null);
+      self.currentPos.set(spawn.x, spawn.y + 0.3, spawn.z);
+      self.currentRotY = 0; // Face South (+Z) into the bouncy castle interior!
+      self.group.position.copy(self.currentPos);
+      self.group.rotation.y = self.currentRotY;
+      state.cameraOrbit.yaw = Math.PI; // Camera right behind player looking straight into the castle!
+    }
+    syncBouncyHudUI();
+    showToast('🏰 เข้าบ้านลมยักษ์เลโก้ (-5 💰) แล้ว! กด Space กระโดดเด้งดึ๋ง • เดินขึ้นบันไดไปลื่นสไลเดอร์คู่ได้เลย (เวลา 2:30 นาที)');
+  });
+}
+
+function leaveBouncyCastle(timedOut = false) {
+  if (!state.inBouncyCastle) return;
+  state.inBouncyCastle = false;
+  state.bouncyEndsAt = 0;
+  bouncyPhys.vy = 0;
+  bouncyPhys.onGround = true;
+  bouncyPhys.sliding = false;
+
+  const self = state.players.get(state.selfId);
+  if (self) {
+    if (self.setSeated) self.setSeated(false);
+    self.currentPos.set(BOUNCY_CASTLE_CONFIG.exitX, 0, BOUNCY_CASTLE_CONFIG.exitZ);
+    self.currentRotY = Math.PI;
+    self.group.position.copy(self.currentPos);
+    self.group.rotation.y = self.currentRotY;
+  }
+  syncBouncyHudUI();
+  if (socket) socket.emit('bouncy:leave');
+  showToast(
+    timedOut
+      ? '⏰ หมดเวลาเล่นบ้านลม (2 นาที 30 วินาที) แล้ว! อยากสนุกต่อกด E ซื้อบัตรเข้าเล่นใหม่ (5 💰) ได้เลย 🏰'
+      : '🚪 ออกจากบ้านลมยักษ์เลโก้เรียบร้อยแล้วครับ!'
+  );
+}
+
+function jumpInBouncyCastle() {
+  if (!state.inBouncyCastle) return;
+  unlockAndResumeAudio(false);
+  const jumped = triggerBouncyJump(bouncyPhys, state.hunger <= 5, audioEngine.ctx, isSfxActive());
+  if (jumped) {
+    // Fun light cardio: each big jump uses 0.8% fullness!
+    state.hunger = Math.max(0, state.hunger - 0.8);
+    updateHungerUI();
+  }
+}
+
+if (dom.btnBouncyJump) {
+  dom.btnBouncyJump.addEventListener('click', jumpInBouncyCastle);
+}
+if (dom.btnBouncyExit) {
+  dom.btnBouncyExit.addEventListener('click', () => leaveBouncyCastle(false));
 }
 
 function openZoneDialog(zone) {
@@ -5338,6 +6522,32 @@ function openZoneDialog(zone) {
     openBalloonGameDialog();
   } else if (zone.id === 'krathong-contest') {
     openContestVoteDialog();
+  } else if (zone.id === 'ferris-wheel') {
+    if (state.ferrisSeat) {
+      leaveFerrisWheel();
+    } else {
+      boardFerrisWheel();
+    }
+  } else if (zone.id === 'moto-lot-left' || zone.id === 'moto-lot-right') {
+    if (state.ridingMoto) {
+      returnMotorcycleToLot();
+    } else {
+      rentMotorcycle();
+    }
+  } else if (zone.id === 'parked-moto' && zone.moto) {
+    remountParkedMotorcycle(zone.moto.id);
+  } else if (zone.id === 'announcer-desk') {
+    if (state.announcerId === state.selfId) {
+      leaveAnnouncerDesk();
+    } else {
+      sitAtAnnouncerDesk();
+    }
+  } else if (zone.id === 'bouncy-castle') {
+    if (state.inBouncyCastle) {
+      leaveBouncyCastle(false);
+    } else {
+      enterBouncyCastle();
+    }
   } else if (zone.id === 'sala-buddha') {
     const self = state.players.get(state.selfId);
     if (self) {
@@ -5373,12 +6583,21 @@ dom.floatKrathongForm.addEventListener('submit', (e) => {
     return;
   }
   const wish = dom.inputWish.value.trim() || 'ขอให้มีความสุข สุขภาพแข็งแรง 🌕';
+  if (containsProfanity(wish)) {
+    showToast('🚫 คำอธิษฐานมีคำไม่สุภาพ กรุณาพิมพ์ด้วยถ้อยคำสุภาพนะครับ');
+    dom.inputWish.focus();
+    return;
+  }
   const launchX = 38.2 + Math.random() * 1.4;
   const launchZ = -12 + (Math.random() - 0.5) * 4;
 
   if (socket) {
     socket.emit('krathong:float', { type, wish, x: launchX, z: launchZ }, (ack) => {
       if (ack && ack.ok === false) {
+        if (ack.error === 'PROFANITY_TEXT') {
+          showToast(ack.message || '🚫 คำอธิษฐานมีคำไม่สุภาพ กรุณาพิมพ์ด้วยถ้อยคำสุภาพนะครับ');
+          return;
+        }
         dom.dialogFloatKrathong.close();
         showToast('🪷 กรุณาไปรับกระทงที่ร้านขายกระทงก่อนนะครับ');
         return;
@@ -5396,6 +6615,11 @@ dom.releaseLanternForm.addEventListener('submit', (e) => {
   const picked = dom.releaseLanternForm.querySelector('input[name="lanternColor"]:checked');
   const color = picked ? picked.value : 'gold';
   const wish = dom.inputLanternWish.value.trim() || 'ขอให้ชีวิตสว่างไสวดุจโคมลอย 🏮';
+  if (containsProfanity(wish)) {
+    showToast('🚫 คำอธิษฐานมีคำไม่สุภาพ กรุณาพิมพ์ด้วยถ้อยคำสุภาพนะครับ');
+    dom.inputLanternWish.focus();
+    return;
+  }
   const self = state.players.get(state.selfId);
   const launchX = self
     ? THREE.MathUtils.clamp(self.currentPos.x + (Math.random() - 0.5) * 0.8, 16.5, 26.5)
@@ -5406,12 +6630,18 @@ dom.releaseLanternForm.addEventListener('submit', (e) => {
 
   if (socket) {
     socket.emit('lantern:release', { color, wish, x: launchX, z: launchZ }, (ack) => {
-      if (ack && ack.ok === false && ack.error === 'NOT_ENOUGH_COINS') {
-        dom.dialogReleaseLantern.close();
-        showToast(
-          `💰 เหรียญไม่พอ! ปล่อยโคมลอยต้องใช้ ${ack.required || 5} เหรียญ — ลงไปว่ายน้ำเก็บเหรียญในสระได้เลย 🏊`
-        );
-        return;
+      if (ack && ack.ok === false) {
+        if (ack.error === 'PROFANITY_TEXT') {
+          showToast(ack.message || '🚫 คำอธิษฐานมีคำไม่สุภาพ กรุณาพิมพ์ด้วยถ้อยคำสุภาพนะครับ');
+          return;
+        }
+        if (ack.error === 'NOT_ENOUGH_COINS') {
+          dom.dialogReleaseLantern.close();
+          showToast(
+            `💰 เหรียญไม่พอ! ปล่อยโคมลอยต้องใช้ ${ack.required || 5} เหรียญ — ลงไปว่ายน้ำเก็บเหรียญในสระได้เลย 🏊`
+          );
+          return;
+        }
       }
       dom.inputLanternWish.value = '';
       dom.dialogReleaseLantern.close();
@@ -5443,8 +6673,9 @@ let lastEsiimsiResult = null;
 
 function playEsiimsiRattleSound() {
   const ctx = audioEngine.ctx;
-  if (!ctx || ctx.state !== 'running') return;
+  if (!isSfxActive() || !ctx || ctx.state !== 'running') return;
   try {
+    const out = getSfxDestination(ctx);
     const now = ctx.currentTime;
     // Authentic bamboo-stick rattling clicks inside a wooden cylinder
     const clickTimes = [0.02, 0.09, 0.17, 0.24, 0.33, 0.41, 0.50, 0.59, 0.68, 0.78, 0.88, 0.99];
@@ -5457,7 +6688,7 @@ function playEsiimsiRattleSound() {
       osc.frequency.exponentialRampToValueAtTime(freq * 0.45, now + dtClick + 0.045);
       g.gain.setValueAtTime(0.11, now + dtClick);
       g.gain.exponentialRampToValueAtTime(0.001, now + dtClick + 0.05);
-      osc.connect(g).connect(ctx.destination);
+      osc.connect(g).connect(out);
       osc.start(now + dtClick);
       osc.stop(now + dtClick + 0.055);
     });
@@ -5521,7 +6752,7 @@ function shakeEsiimsi() {
     if (picked.tier === 'great' && socket) {
       socket.emit('esiimsi:bonus', { num: picked.num, tier: picked.tier }, (ack) => {
         if (ack?.ok) {
-          playCoinCollectSound(audioEngine.ctx, state.musicEnabled, 5);
+          playCoinCollectSound(audioEngine.ctx, isSfxActive(), 5);
           showToast('🌟 ดวงดีมาก! รับโบนัสพิเศษ +5 💰 เหรียญงานวัด!');
         }
       });
@@ -5727,7 +6958,7 @@ function stopBalloonGame(submitResult = false) {
     socket.emit('minigame:balloonFinish', { popped: finalPopped }, (ack) => {
       if (dom.balloonBoardOverlay) dom.balloonBoardOverlay.classList.remove('hidden');
       if (ack?.won) {
-        playStarWinSound(audioEngine.ctx, state.musicEnabled, true);
+        playStarWinSound(audioEngine.ctx, isSfxActive(), true);
         if (dom.balloonResultText) {
           dom.balloonResultText.textContent = `🏆 เก่งมาก! ปาแตก ${finalPopped} ลูก รับ +15 💰 และตุ๊กตาหมีงานวัด 🧸!`;
         }
@@ -5771,7 +7002,7 @@ function spawnBalloonTarget() {
     e.stopPropagation();
     if (!balloonGameActive || item.popped) return;
     item.popped = true;
-    playDartPopSound(audioEngine.ctx, state.musicEnabled);
+    playDartPopSound(audioEngine.ctx, isSfxActive());
 
     const fx = document.createElement('span');
     fx.className = 'balloon-pop-fx';
@@ -5892,6 +7123,7 @@ function renderContestVoteUI() {
         if (ack?.ok) {
           state.myContestVote = item.id;
           state.contestVotes = { counts: ack.counts, total: ack.total };
+          updateContest3DScoreboards();
           renderContestVoteUI();
           showToast(`🪷 คุณโหวตให้ "${item.name}" แล้ว!`);
         }
@@ -5977,6 +7209,210 @@ if (dom.btnLeaderboard) {
 }
 
 // ============================================================================
+// UNIFIED SETTINGS MODAL (#dialog-settings: Music / SFX / Voice / Camera / GFX)
+// ============================================================================
+
+function applyAudioMixerGains() {
+  if (audioEngine.sfxGain && audioEngine.ctx) {
+    const targetSfx = state.sfxEnabled ? THREE.MathUtils.clamp(state.sfxVolume, 0, 1) : 0;
+    audioEngine.sfxGain.gain.setTargetAtTime(targetSfx, audioEngine.ctx.currentTime, 0.04);
+  }
+  if (state.musicEnabled && state.musicVolume > 0.005) {
+    if (state.joined) unlockAndResumeAudio(false);
+  } else {
+    audioEngine.needsUnlock = false;
+    updateAudioUnlockBanner();
+    if (audioEngine.mp3El && !audioEngine.mp3El.paused && !state.musicEnabled) {
+      audioEngine.mp3El.pause();
+    }
+    if (audioEngine.festivalEl && !audioEngine.festivalEl.paused && !state.musicEnabled) {
+      audioEngine.festivalEl.pause();
+    }
+  }
+  updateProximityVoiceVolumes();
+}
+
+function syncSettingsModalUI() {
+  const mPct = Math.round(state.musicVolume * 100);
+  const sPct = Math.round(state.sfxVolume * 100);
+  const vPct = Math.round(state.voiceVolume * 100);
+
+  if (dom.sliderVolMusic) dom.sliderVolMusic.value = String(mPct);
+  if (dom.valVolMusic) dom.valVolMusic.textContent = state.musicEnabled ? `${mPct}%` : 'ปิด';
+  if (dom.btnMuteMusic) {
+    dom.btnMuteMusic.setAttribute('aria-pressed', String(state.musicEnabled));
+    dom.btnMuteMusic.classList.toggle('is-on', state.musicEnabled);
+    dom.btnMuteMusic.classList.toggle('is-muted', !state.musicEnabled);
+    dom.btnMuteMusic.textContent = state.musicEnabled ? '🔊 เปิดอยู่' : '🔇 ปิดเสียง';
+  }
+
+  if (dom.sliderVolSfx) dom.sliderVolSfx.value = String(sPct);
+  if (dom.valVolSfx) dom.valVolSfx.textContent = state.sfxEnabled ? `${sPct}%` : 'ปิด';
+  if (dom.btnMuteSfx) {
+    dom.btnMuteSfx.setAttribute('aria-pressed', String(state.sfxEnabled));
+    dom.btnMuteSfx.classList.toggle('is-on', state.sfxEnabled);
+    dom.btnMuteSfx.classList.toggle('is-muted', !state.sfxEnabled);
+    dom.btnMuteSfx.textContent = state.sfxEnabled ? '🔊 เปิดอยู่' : '🔇 ปิดเสียง';
+  }
+
+  if (dom.sliderVolVoice) dom.sliderVolVoice.value = String(vPct);
+  if (dom.valVolVoice) dom.valVolVoice.textContent = state.voiceAudioEnabled ? `${vPct}%` : 'ปิด';
+  if (dom.btnMuteVoice) {
+    dom.btnMuteVoice.setAttribute('aria-pressed', String(state.voiceAudioEnabled));
+    dom.btnMuteVoice.classList.toggle('is-on', state.voiceAudioEnabled);
+    dom.btnMuteVoice.classList.toggle('is-muted', !state.voiceAudioEnabled);
+    dom.btnMuteVoice.textContent = state.voiceAudioEnabled ? '🔊 เปิดอยู่' : '🔇 ปิดเสียง';
+  }
+
+  if (dom.btnGfxToggle) {
+    dom.btnGfxToggle.setAttribute('aria-pressed', String(state.lowGraphics));
+    dom.btnGfxToggle.classList.toggle('is-on', !state.lowGraphics);
+    dom.btnGfxToggle.textContent = state.lowGraphics ? 'ประหยัด (ลื่นพิเศษ)' : 'ปกติ (ภาพสวย)';
+  }
+
+  if (dom.btnAutofollow) {
+    dom.btnAutofollow.classList.toggle('is-on', state.autoFollowCam);
+    dom.btnAutofollow.setAttribute('aria-pressed', String(state.autoFollowCam));
+    dom.btnAutofollow.textContent = state.autoFollowCam ? 'เปิดอยู่' : 'ปิดอยู่';
+  }
+
+  if (dom.btnToggleLabels) {
+    const showing = !state.hideAllLabels;
+    dom.btnToggleLabels.classList.toggle('is-on', showing);
+    dom.btnToggleLabels.setAttribute('aria-pressed', String(showing));
+    dom.btnToggleLabels.textContent = showing ? 'แสดงชื่อ' : 'ซ่อนชื่อ';
+  }
+
+  if (dom.labelsLayer && !state.photoMode) {
+    dom.labelsLayer.style.visibility = state.hideAllLabels ? 'hidden' : 'visible';
+  }
+}
+
+if (dom.btnSettings) {
+  dom.btnSettings.addEventListener('click', () => {
+    syncSettingsModalUI();
+    if (dom.dialogSettings && !dom.dialogSettings.open) {
+      dom.dialogSettings.showModal();
+    }
+  });
+}
+
+if (dom.btnMuteMusic) {
+  dom.btnMuteMusic.addEventListener('click', () => {
+    state.musicEnabled = !state.musicEnabled;
+    if (state.musicEnabled && state.musicVolume < 0.05) state.musicVolume = 0.5;
+    applyAudioMixerGains();
+    if (state.musicEnabled && audioEngine.currentTrack && audioEngine.mp3El?.dataset.trackLoaded) {
+      applyRoomStageTrack(audioEngine.currentTrack);
+    }
+    syncSettingsModalUI();
+    saveProfileToStorage();
+  });
+}
+
+if (dom.btnMuteSfx) {
+  dom.btnMuteSfx.addEventListener('click', () => {
+    state.sfxEnabled = !state.sfxEnabled;
+    if (state.sfxEnabled && state.sfxVolume < 0.05) state.sfxVolume = 0.5;
+    applyAudioMixerGains();
+    syncSettingsModalUI();
+    saveProfileToStorage();
+  });
+}
+
+if (dom.btnMuteVoice) {
+  dom.btnMuteVoice.addEventListener('click', () => {
+    state.voiceAudioEnabled = !state.voiceAudioEnabled;
+    if (state.voiceAudioEnabled && state.voiceVolume < 0.05) state.voiceVolume = 0.5;
+    applyAudioMixerGains();
+    syncSettingsModalUI();
+    saveProfileToStorage();
+  });
+}
+
+function setChannelVolumePct(channel, rawPct) {
+  const pct = Math.max(0, Math.min(100, Math.round(Number(rawPct) || 0)));
+  const norm = pct / 100;
+  if (channel === 'music') {
+    state.musicVolume = norm;
+    state.musicEnabled = pct > 0;
+  } else if (channel === 'sfx') {
+    state.sfxVolume = norm;
+    state.sfxEnabled = pct > 0;
+  } else if (channel === 'voice') {
+    state.voiceVolume = norm;
+    state.voiceAudioEnabled = pct > 0;
+  }
+  applyAudioMixerGains();
+  syncSettingsModalUI();
+  saveProfileToStorage();
+}
+
+if (dom.sliderVolMusic) {
+  dom.sliderVolMusic.addEventListener('input', () => setChannelVolumePct('music', dom.sliderVolMusic.value));
+}
+if (dom.sliderVolSfx) {
+  dom.sliderVolSfx.addEventListener('input', () => setChannelVolumePct('sfx', dom.sliderVolSfx.value));
+}
+if (dom.sliderVolVoice) {
+  dom.sliderVolVoice.addEventListener('input', () => setChannelVolumePct('voice', dom.sliderVolVoice.value));
+}
+
+document.querySelectorAll('[data-vol-target]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const ch = btn.dataset.volTarget;
+    const delta = Number(btn.dataset.volDelta) || 0;
+    const cur =
+      ch === 'music'
+        ? Math.round(state.musicVolume * 100)
+        : ch === 'sfx'
+          ? Math.round(state.sfxVolume * 100)
+          : Math.round(state.voiceVolume * 100);
+    setChannelVolumePct(ch, cur + delta);
+  });
+});
+
+if (dom.btnAutofollow) {
+  dom.btnAutofollow.addEventListener('click', () => {
+    state.autoFollowCam = !state.autoFollowCam;
+    syncSettingsModalUI();
+    saveProfileToStorage();
+    showToast(
+      state.autoFollowCam
+        ? '🧭 เปิดกล้องตามหลังอัตโนมัติ (เดิน/ขี่รถเลี้ยวไม่ต้องคอยลากหมุนกล้อง)'
+        : '🧭 ปิดกล้องตามหลังอัตโนมัติ (หมุนกล้องเองได้อิสระ)'
+    );
+  });
+}
+
+if (dom.btnToggleLabels) {
+  dom.btnToggleLabels.addEventListener('click', () => {
+    state.hideAllLabels = !state.hideAllLabels;
+    syncSettingsModalUI();
+    saveProfileToStorage();
+  });
+}
+
+if (dom.btnSwitchCharacter) {
+  dom.btnSwitchCharacter.addEventListener('click', () => {
+    if (dom.dialogSettings?.open) dom.dialogSettings.close();
+    if (state.announcerId === state.selfId) {
+      leaveAnnouncerDesk();
+    }
+    state.joined = false;
+    dom.hud.classList.add('hidden');
+    dom.lobbyOverlay.classList.remove('hidden');
+    if (dom.inputNickname) dom.inputNickname.value = state.nickname;
+    if (dom.optLowGfx) dom.optLowGfx.checked = state.lowGraphics;
+    showLobbyJoinError('');
+    resizePreviewCanvas();
+    renderAvatarDots();
+    refreshPreviewAvatar();
+    fetchRoomsStatus();
+  });
+}
+
+// ============================================================================
 // PHOTO BOOTH CAMERA MODE (Auto-Framed Front Portrait + PNG Capture/Share)
 // ============================================================================
 
@@ -5985,8 +7421,9 @@ let lastPhotoBlob = null;
 
 function playShutterSound() {
   const ctx = audioEngine.ctx;
-  if (!ctx || ctx.state !== 'running') return;
+  if (!isSfxActive() || !ctx || ctx.state !== 'running') return;
   try {
+    const out = getSfxDestination(ctx);
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
@@ -5995,7 +7432,7 @@ function playShutterSound() {
     osc.frequency.exponentialRampToValueAtTime(180, now + 0.065);
     g.gain.setValueAtTime(0.24, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
-    osc.connect(g).connect(ctx.destination);
+    osc.connect(g).connect(out);
     osc.start(now);
     osc.stop(now + 0.08);
   } catch {}
@@ -6051,10 +7488,11 @@ function exitPhotoMode() {
     camera.updateProjectionMatrix();
   }
   if (dom.labelsLayer) {
-    dom.labelsLayer.style.visibility = 'visible';
+    dom.labelsLayer.style.visibility = state.hideAllLabels ? 'hidden' : 'visible';
   }
   dom.photoModeBar.classList.add('hidden');
   dom.hud.classList.remove('hidden');
+  syncAnnouncerHudBar();
   if (dom.dialogPhotoPreview?.open) {
     dom.dialogPhotoPreview.close();
   }
@@ -6286,6 +7724,13 @@ dom.lobbyForm.addEventListener('submit', (e) => {
     dom.inputNickname.focus();
     return;
   }
+  if (containsProfanity(nick)) {
+    showLobbyJoinError('🚫 ชื่อนี้มีคำไม่สุภาพ กรุณาตั้งชื่อใหม่ที่สุภาพนะครับ');
+    dom.inputNickname.focus();
+    dom.inputNickname.select();
+    return;
+  }
+  showLobbyJoinError('');
   state.nickname = nick;
   state.selectedRoomId = dom.selectRoom ? dom.selectRoom.value : 'auto';
   applyGraphicsMode(dom.optLowGfx.checked);
@@ -6339,30 +7784,6 @@ dom.minimapToggle.addEventListener('click', () => {
   applyMinimapState();
 });
 
-dom.btnMusicToggle.addEventListener('click', () => {
-  state.musicEnabled = !state.musicEnabled;
-  dom.btnMusicToggle.setAttribute('aria-pressed', String(state.musicEnabled));
-  const lbl = dom.btnMusicToggle.querySelector('.btn-label');
-  if (lbl) lbl.textContent = state.musicEnabled ? 'เพลง: เปิด' : 'เพลง: ปิด';
-
-  if (state.musicEnabled) {
-    unlockAndResumeAudio(false);
-    // Re-sync live concert stage track timestamp when unmuting
-    if (audioEngine.currentTrack && audioEngine.mp3El?.dataset.trackLoaded) {
-      applyRoomStageTrack(audioEngine.currentTrack);
-    }
-  } else {
-    audioEngine.needsUnlock = false;
-    updateAudioUnlockBanner();
-    if (audioEngine.mp3El && !audioEngine.mp3El.paused) {
-      audioEngine.mp3El.pause();
-    }
-    if (audioEngine.festivalEl && !audioEngine.festivalEl.paused) {
-      audioEngine.festivalEl.pause();
-    }
-  }
-});
-
 if (dom.btnAudioUnlock) {
   dom.btnAudioUnlock.addEventListener('click', () => {
     unlockAndResumeAudio(true);
@@ -6390,16 +7811,22 @@ function handleGlobalAudioGesture() {
 window.addEventListener('pointerdown', handleGlobalAudioGesture, { passive: true });
 window.addEventListener('touchend', handleGlobalAudioGesture, { passive: true });
 
-dom.btnGfxToggle.addEventListener('click', () => {
-  autoPerfAdjusted = true;
-  applyGraphicsMode(!state.lowGraphics);
-});
+if (dom.btnGfxToggle) {
+  dom.btnGfxToggle.addEventListener('click', () => {
+    autoPerfAdjusted = true;
+    applyGraphicsMode(!state.lowGraphics);
+    syncSettingsModalUI();
+    saveProfileToStorage();
+  });
+}
 
-dom.btnMicSetup.addEventListener('click', async () => {
-  unlockAndResumeAudio(false);
-  const ok = await requestMicrophoneAccess(false);
-  if (ok) showToast('ไมโครโฟนพร้อมใช้งาน แตะปุ่มไมค์เพื่อเปิด/ปิด หรือกดค้าง / กด V เพื่อพูด');
-});
+if (dom.btnMicSetup) {
+  dom.btnMicSetup.addEventListener('click', async () => {
+    unlockAndResumeAudio(false);
+    const ok = await requestMicrophoneAccess(false);
+    if (ok) showToast('ไมโครโฟนพร้อมใช้งาน แตะปุ่มไมค์เพื่อเปิด/ปิด หรือกดค้าง / กด V เพื่อพูด');
+  });
+}
 
 if (dom.btnChatFab) {
   dom.btnChatFab.addEventListener('click', () => {
@@ -6417,6 +7844,10 @@ dom.chatForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const text = dom.chatInput.value.trim();
   if (!text || !socket) return;
+  if (containsProfanity(text)) {
+    showToast('🚫 ข้อความมีคำไม่สุภาพ ไม่สามารถส่งลงแชตงานวัดได้ครับ');
+    return;
+  }
   socket.emit('chat:send', { text });
   dom.chatInput.value = '';
 });
@@ -6446,8 +7877,9 @@ dom.btnWave.addEventListener('click', triggerSelfWave);
 let lastEatAt = 0;
 function playEatSound(propType) {
   const ctx = audioEngine.ctx;
-  if (!ctx || ctx.state !== 'running') return;
+  if (!isSfxActive() || !ctx || ctx.state !== 'running') return;
   try {
+    const out = getSfxDestination(ctx);
     const now = ctx.currentTime;
     if (propType === 'drink') {
       const osc = ctx.createOscillator();
@@ -6457,7 +7889,7 @@ function playEatSound(propType) {
       osc.frequency.exponentialRampToValueAtTime(680, now + 0.16);
       g.gain.setValueAtTime(0.14, now);
       g.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
-      osc.connect(g).connect(ctx.destination);
+      osc.connect(g).connect(out);
       osc.start(now);
       osc.stop(now + 0.2);
     } else {
@@ -6470,7 +7902,7 @@ function playEatSound(propType) {
         osc.frequency.exponentialRampToValueAtTime(95, now + delay + 0.08);
         g.gain.setValueAtTime(0.16, now + delay);
         g.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.09);
-        osc.connect(g).connect(ctx.destination);
+        osc.connect(g).connect(out);
         osc.start(now + delay);
         osc.stop(now + delay + 0.1);
       });
@@ -6504,15 +7936,25 @@ function triggerSelfEat() {
   const msg = meta.lines ? meta.lines[lineIdx] : `${meta.emoji} อร่อยมาก!`;
   if (self) showPlayerChatBubble(state.selfId, msg);
 
+  // Restore +22% fullness per bite (3 bites = +66%!)
+  const prevHunger = state.hunger;
+  state.hunger = Math.min(100, state.hunger + 22);
+  if (state.hunger >= 35) state.lowHungerNotified = false;
+  updateHungerUI();
+  const gained = Math.max(0, Math.round(state.hunger - prevHunger));
+  if (gained > 0) {
+    spawnSocialFloatingFx(state.selfId, [`🍖 +${gained}%`, '😋']);
+  }
+
   if (socket) socket.emit('player:eat');
 
   if (nextBites > 0) {
     if (self) updatePlayerHeldProp(self, propType, nextBites);
-    showToast(`${msg} (เหลืออีก ${nextBites} คำ)`);
+    showToast(`${msg} (+${gained}% ความอิ่ม • เหลืออีก ${nextBites} คำ)`);
   } else {
     state.propBites = 0;
     syncEatButtonUI();
-    showToast(`${msg} แวะชิมร้านอื่นต่อได้เลย!`);
+    showToast(`${msg} (+${gained}% ความอิ่ม • แวะชิมร้านอื่นต่อได้เลย!)`);
     setTimeout(() => {
       const curSelf = state.players.get(state.selfId);
       if (curSelf && curSelf.heldProp === propType && state.propBites === 0) {
@@ -6749,6 +8191,22 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     openZoneDialog(state.activeZone);
   }
+  if (code === 'KeyC' && !e.repeat && state.ferrisSeat && !state.photoMode) {
+    e.preventDefault();
+    toggleFerrisCameraMode();
+  }
+  if (code === 'KeyB' && !e.repeat && state.ridingMoto && !state.photoMode) {
+    e.preventDefault();
+    honkMotorcycle();
+  }
+  if (code === 'KeyG' && !e.repeat && state.ridingMoto && !state.photoMode) {
+    e.preventDefault();
+    dismountMotorcycle();
+  }
+  if (code === 'Space' && !e.repeat && state.inBouncyCastle && !state.photoMode) {
+    e.preventDefault();
+    jumpInBouncyCastle();
+  }
   if (code === 'KeyF' && !e.repeat && !state.photoMode) {
     triggerSelfEat();
   }
@@ -6849,12 +8307,17 @@ window.addEventListener('pointermove', (e) => {
   if (Math.hypot(e.clientX - camDownX, e.clientY - camDownY) > 6) {
     state.fireworkViewUntil = 0;
   }
+  if (Math.abs(dx) > 1.5) {
+    state.manualCamUntil = performance.now() + 2200;
+  }
   state.cameraOrbit.yaw -= dx * 0.0065;
-  // Allow looking UP toward the night sky (-0.52 rad) to watch fireworks & sky lanterns!
+  // Allow looking UP toward the night sky (-0.52 rad) — and wider vertical look (-0.85..1.05) in 1st-person Ferris Wheel!
+  const minPitch = state.ferrisSeat && state.ferrisFirstPerson ? -0.85 : -0.52;
+  const maxPitch = state.ferrisSeat && state.ferrisFirstPerson ? 1.05 : 1.15;
   state.cameraOrbit.pitch = THREE.MathUtils.clamp(
     state.cameraOrbit.pitch + dy * 0.005,
-    -0.52,
-    1.15
+    minPitch,
+    maxPitch
   );
 });
 
@@ -6914,7 +8377,7 @@ function releaseCanvasPointer(e) {
 window.addEventListener('pointerup', releaseCanvasPointer);
 window.addEventListener('pointercancel', releaseCanvasPointer);
 
-dom.worldCanvas.addEventListener(
+  dom.worldCanvas.addEventListener(
   'wheel',
   (e) => {
     if (!state.joined || state.photoMode) return;
@@ -6923,7 +8386,7 @@ dom.worldCanvas.addEventListener(
     state.cameraOrbit.distance = THREE.MathUtils.clamp(
       state.cameraOrbit.distance + e.deltaY * 0.006,
       4.0,
-      16.0
+      state.ferrisSeat ? 24.0 : 16.0
     );
   },
   { passive: false }
@@ -6997,6 +8460,70 @@ function updateLocalPlayer(dt) {
   const self = state.players.get(state.selfId);
   if (!self) return;
 
+  refreshPaBannerState();
+
+  // Riding inside the Giant Ferris Wheel Gondola!
+  if (state.ferrisSeat && ferrisWheelState) {
+    const faceYaw = getFerrisSeatWorldPos(
+      ferrisWheelState,
+      state.ferrisSeat.cabin,
+      state.ferrisSeat.seat,
+      self.currentPos
+    );
+    self.currentRotY = faceYaw;
+    self.isMoving = false;
+    self.isRunning = false;
+    self.isSwimming = false;
+    if (self.setSwimming) self.setSwimming(false);
+    if (self.setSeated) self.setSeated(true);
+    self.group.position.copy(self.currentPos);
+    self.group.rotation.y = self.currentRotY;
+
+    const { yaw, pitch, distance } = state.cameraOrbit;
+    if (state.ferrisFirstPerson) {
+      // Authentic 1st-Person Seated Gondola View: camera sits at real rider eye level looking 360° out over the handrail!
+      if (self.group.visible) self.group.visible = false;
+      const eyeY = self.currentPos.y + Math.max(1.02, (self.headY || 1.35) * 0.78);
+      const fwdOffset = 0.09;
+      const eyeX = self.currentPos.x + Math.sin(faceYaw) * fwdOffset;
+      const eyeZ = self.currentPos.z + Math.cos(faceYaw) * fwdOffset;
+      camera.position.set(eyeX, eyeY, eyeZ);
+
+      const lookDirX = -Math.sin(yaw) * Math.cos(pitch);
+      const lookDirY = -Math.sin(pitch);
+      const lookDirZ = -Math.cos(yaw) * Math.cos(pitch);
+      camTargetVec.set(eyeX + lookDirX * 12, eyeY + lookDirY * 12, eyeZ + lookDirZ * 12);
+      camera.lookAt(camTargetVec);
+    } else {
+      // 3rd-Person Exterior View: see yourself & your friend riding comfortably inside the gondola!
+      if (!self.group.visible) self.group.visible = true;
+      const skyLookLift = pitch < 0 ? -Math.sin(pitch) * distance * 1.45 : 0;
+      const baseTargetY = self.currentPos.y + Math.max(0.75, (self.headY || 1.45) * 0.72);
+      camTargetVec.set(self.currentPos.x, baseTargetY + skyLookLift, self.currentPos.z);
+      const camX = camTargetVec.x + Math.sin(yaw) * Math.cos(pitch) * distance;
+      const camY = Math.max(0.9, baseTargetY + Math.sin(pitch) * distance);
+      const camZ = camTargetVec.z + Math.cos(yaw) * Math.cos(pitch) * distance;
+      camDesiredVec.set(camX, camY, camZ);
+      camera.position.lerp(camDesiredVec, Math.min(1, dt * 14));
+      camera.lookAt(camTargetVec);
+    }
+
+    state.activeZone = { id: 'ferris-wheel', label: 'ลงจากชิงช้าสวรรค์ 🎡' };
+    dom.interactLabel.textContent = 'ลงจากชิงช้าสวรรค์ 🎡';
+    dom.interactWrap.classList.remove('hidden');
+    updateFerrisCamButtonUI();
+
+    updateSpatialConcertAudio(self.currentPos, dt);
+    updateProximityVoiceVolumes();
+    return;
+  }
+
+  // Ensure local avatar stays visible & Ferris camera button stays hidden whenever walking on ground
+  if (!self.group.visible) self.group.visible = true;
+  if (dom.btnFerrisCam && !dom.btnFerrisCam.classList.contains('hidden')) {
+    dom.btnFerrisCam.classList.add('hidden');
+  }
+
   let moveX = 0;
   let moveZ = 0;
 
@@ -7014,13 +8541,42 @@ function updateLocalPlayer(dt) {
 
   const inputLen = Math.hypot(moveX, moveZ);
   const isMoving = inputLen > 0.12;
+  const isStarving = state.hunger <= 5;
   const isRunning =
+    !isStarving &&
     isMoving &&
     (state.keys.has('ShiftLeft') || state.keys.has('ShiftRight') || state.sprintTouch);
 
-  // Moving automatically stands the player up from a concert chair & stops loop dances!
+  // Player Hunger Drain (gentle when idle/riding, faster when walking/running/swimming/bouncing!)
+  const inBouncyActive = state.inBouncyCastle && (isMoving || !bouncyPhys.onGround || bouncyPhys.sliding);
+  const drainRate = isRunning || self.isSwimming
+    ? 0.92
+    : inBouncyActive
+      ? 0.72
+      : isMoving && !state.ridingMoto
+        ? 0.38
+        : 0.14;
+  const prevHungerInt = Math.round(state.hunger);
+  state.hunger = Math.max(0, state.hunger - drainRate * dt);
+  if (Math.round(state.hunger) !== prevHungerInt) {
+    updateHungerUI();
+  }
+  if (state.hunger < 30 && !state.lowHungerNotified) {
+    state.lowHungerNotified = true;
+    showToast('🤤 เริ่มหิวแล้ว! แวะซื้อของกินหรือเครื่องดื่มที่ตลาดงานวัดมากินเติมพลังได้เลย (กด F)');
+  }
+  if (state.hunger <= 5 && performance.now() - state.starveNotifiedAt > 25000) {
+    state.starveNotifiedAt = performance.now();
+    showPlayerChatBubble(state.selfId, 'หิวจังเลย... หาของกินในตลาดงานวัดดีกว่า 🍡');
+    showToast('😵 หมดแรงหิวมาก! วิ่งเร็วไม่ได้ชั่วคราว แวะซื้อของกินตลาดงานวัดมากินเติมพลังนะครับ');
+  }
+
+  // Moving automatically stands the player up from a concert chair / announcer desk & stops loop dances!
   if (isMoving && state.seatedChairId) {
     standUpFromChair();
+  }
+  if (isMoving && state.announcerId === state.selfId) {
+    leaveAnnouncerDesk();
   }
   if (isMoving && state.activeEmote) {
     state.activeEmote = null;
@@ -7030,8 +8586,10 @@ function updateLocalPlayer(dt) {
   }
 
   const wasSwimming = Boolean(self.isSwimming);
+  const isRiding = Boolean(state.ridingMoto);
+  let steerDelta = 0;
 
-  if (isMoving) {
+  if (isMoving && !(state.inBouncyCastle && bouncyPhys.sliding)) {
     const nx = moveX / Math.max(1, inputLen);
     const nz = moveZ / Math.max(1, inputLen);
 
@@ -7041,23 +8599,117 @@ function updateLocalPlayer(dt) {
     const worldDirX = nx * cosY + nz * sinY;
     const worldDirZ = -nx * sinY + nz * cosY;
 
-    const speed = wasSwimming ? (isRunning ? 5.2 : 3.5) : isRunning ? 8.2 : 4.5;
+    const baseWalkSpeed = isStarving ? 3.2 : 4.5;
+    const speed = isRiding
+      ? isRunning ? 13.6 : 9.6
+      : wasSwimming
+        ? isRunning ? 5.2 : 3.5
+        : state.inBouncyCastle
+          ? isRunning ? 6.0 : 4.2
+          : isRunning ? 8.2 : baseWalkSpeed;
     self.currentPos.x += worldDirX * speed * dt;
     self.currentPos.z += worldDirZ * speed * dt;
 
-    resolvePlayerCollisions(self.currentPos, 0.48);
+    if (!state.inBouncyCastle) {
+      resolvePlayerCollisions(self.currentPos, isRiding ? 0.56 : 0.48);
+    }
+    if (isRiding) {
+      const blockedZone = resolveMotoRestrictedCollisions(self.currentPos, 0.65);
+      if (blockedZone) {
+        const nowWarn = performance.now();
+        if (!window.__lastMotoWarnAt || nowWarn - window.__lastMotoWarnAt > 2400) {
+          window.__lastMotoWarnAt = nowWarn;
+          const zoneMsg =
+            blockedZone === 'no-moto-pond'
+              ? '🚫 ห้ามขี่มอเตอร์ไซค์ลงสระน้ำ! กด G ลงรถก่อนลงว่ายน้ำครับ'
+              : blockedZone === 'no-moto-ubosot'
+                ? '🙏 เขตพระอุโบสถห้ามนำรถเข้า! กด G ลงรถก่อนเดินเข้าโบสถ์ครับ'
+                : '🚫 ห้ามขี่มอเตอร์ไซค์ขึ้นเวทีคอนเสิร์ต! กด G ลงรถก่อนขึ้นบันไดครับ';
+          showToast(zoneMsg);
+        }
+      }
+    }
 
-    // Character faces direction of travel (+Z local forward)
+    // Character / Motorcycle faces direction of travel (+Z local forward)
     const desiredRot = Math.atan2(worldDirX, worldDirZ);
     let diff = desiredRot - self.currentRotY;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    self.currentRotY += diff * Math.min(1, dt * 12);
+    steerDelta = diff;
+    self.currentRotY += diff * Math.min(1, dt * (isRiding ? 8.5 : 12));
+
+    // Smart Auto-Follow Camera: smoothly swings behind character when turning/moving (skips straight reverse!)
+    const isReversingStraight = moveZ > 0.65 && Math.abs(moveX) < 0.25;
+    if (
+      state.autoFollowCam &&
+      !isReversingStraight &&
+      !camDragging &&
+      !state.photoMode &&
+      performance.now() > state.manualCamUntil &&
+      performance.now() > state.fireworkViewUntil
+    ) {
+      const targetCamYaw = self.currentRotY + Math.PI;
+      let camDiff = targetCamYaw - state.cameraOrbit.yaw;
+      while (camDiff > Math.PI) camDiff -= Math.PI * 2;
+      while (camDiff < -Math.PI) camDiff += Math.PI * 2;
+      const followRate = isRiding ? 2.65 : 1.8;
+      state.cameraOrbit.yaw += camDiff * Math.min(1, dt * followRate);
+    }
+  }
+
+  // Smooth banking lean & subtle scooter engine hum while riding!
+  if (isRiding) {
+    const targetLean = isMoving ? THREE.MathUtils.clamp(-steerDelta * 0.35, -0.24, 0.24) : 0;
+    self.motoLean = (self.motoLean || 0) + (targetLean - (self.motoLean || 0)) * Math.min(1, dt * 10);
+    self.group.rotation.z = self.motoLean;
+    updateMotoEngineHum(
+      motoEngineState,
+      audioEngine.ctx,
+      isMoving ? (isRunning ? 1.0 : 0.62) : 0,
+      isSfxActive()
+    );
+  } else if (self.group.rotation.z !== 0) {
+    self.motoLean = 0;
+    self.group.rotation.z = 0;
   }
 
   self.isMoving = isMoving;
   self.isRunning = isRunning;
 
+  // Step feet cleanly inside the Bouncy Castle (stairs, high dome deck, twin slides, air mattress & 2:30 timer!)
+  if (state.inBouncyCastle) {
+    const remainingMs = state.bouncyEndsAt - performance.now();
+    if (remainingMs <= 0) {
+      leaveBouncyCastle(true);
+    } else {
+      const totalSec = Math.ceil(remainingMs / 1000);
+      const mins = Math.floor(totalSec / 60);
+      const secs = String(totalSec % 60).padStart(2, '0');
+      if (dom.bouncyTimerText) {
+        dom.bouncyTimerText.textContent = `บ้านลม: เหลือ ${mins}:${secs}`;
+      }
+      if (dom.bouncyTimerPill) {
+        dom.bouncyTimerPill.classList.toggle('is-ending', totalSec <= 15);
+      }
+
+      const bRes = stepPlayerInsideBouncyCastle(
+        self.currentPos,
+        bouncyPhys,
+        dt,
+        isMoving,
+        isStarving,
+        audioEngine.ctx,
+        isSfxActive()
+      );
+      self.isSwimming = false;
+      if (self.setSwimming) self.setSwimming(false);
+      if (self.setSeated) self.setSeated(Boolean(bRes.sliding));
+      if (bRes.sliding) {
+        self.currentRotY = bRes.slideWorldYaw;
+        self.isMoving = false;
+      }
+    }
+  } else {
   // Step feet cleanly onto elevated floors & swim chest-deep in the Loy Krathong pond!
   let targetGroundY = 0;
   let yLerpSpeed = 16;
@@ -7118,6 +8770,7 @@ function updateLocalPlayer(dt) {
   }
 
   self.currentPos.y += (targetGroundY - self.currentPos.y) * Math.min(1, dt * yLerpSpeed);
+  } // end else (!state.inBouncyCastle)
 
   self.group.position.copy(self.currentPos);
   self.group.rotation.y = self.currentRotY;
@@ -7178,11 +8831,34 @@ function updateLocalPlayer(dt) {
   // Check nearby interactive zones (landmarks first, then any of the 77 vendor stalls!)
   let foundZone = null;
   let bestDist = Infinity;
+  if (state.inBouncyCastle) {
+    foundZone = null; // Inside bouncy castle: dedicated Jump & Exit buttons handle actions cleanly!
+  } else {
   for (const z of INTERACT_ZONES) {
     const d = Math.hypot(self.currentPos.x - z.x, self.currentPos.z - z.z);
     if (d <= z.radius && d < bestDist) {
       bestDist = d;
       foundZone = z;
+    }
+  }
+  }
+  if (!foundZone && !state.ridingMoto && state.parkedMotos.size > 0) {
+    let bestMoto = null;
+    let bestMotoDist = 2.6;
+    for (const [, item] of state.parkedMotos) {
+      if (item.data.ownerId !== state.selfId) continue;
+      const d = Math.hypot(self.currentPos.x - item.data.x, self.currentPos.z - item.data.z);
+      if (d <= bestMotoDist) {
+        bestMotoDist = d;
+        bestMoto = item.data;
+      }
+    }
+    if (bestMoto) {
+      foundZone = {
+        id: 'parked-moto',
+        moto: bestMoto,
+        label: 'ขึ้นขี่มอเตอร์ไซค์ที่จอดไว้ (ฟรี) 🏍️'
+      };
     }
   }
   if (!foundZone && state.seatedChairId) {
@@ -7221,10 +8897,29 @@ function updateLocalPlayer(dt) {
   }
   state.activeZone = foundZone;
   if (foundZone) {
-    const labelText =
-      foundZone.id === 'float-pier' && !state.heldKrathong
-        ? 'ต้องรับกระทงที่ร้านก่อน 🪷'
-        : foundZone.label;
+    let labelText = foundZone.label;
+    if (foundZone.id === 'float-pier' && !state.heldKrathong) {
+      labelText = 'ต้องรับกระทงที่ร้านก่อน 🪷';
+    } else if (foundZone.id === 'announcer-desk') {
+      if (state.announcerId === state.selfId) {
+        labelText = 'ลุกจากโต๊ะมัคนายก 🎙️';
+      } else if (state.announcerId) {
+        labelText = `โต๊ะมัคนายก (${state.announcerName || 'มีผู้ใช้อยู่'} กำลังนั่ง) 🎙️`;
+      } else {
+        labelText = 'นั่งโต๊ะมัคนายกประกาศงานวัด (ฟรี) 🎙️';
+      }
+    } else if (foundZone.id === 'moto-lot-left' || foundZone.id === 'moto-lot-right') {
+      if (state.ridingMoto) {
+        labelText = 'คืนมอเตอร์ไซค์เข้าลานจอด 🅿️';
+      } else {
+        const q = state.motoQuota || { used: 0, max: 10, available: 10 };
+        const hasOwn = state.parkedMotos.has(`pmoto-${state.selfId}`);
+        labelText =
+          q.available > 0 || hasOwn
+            ? `เช่าขี่มอเตอร์ไซค์ (5 💰 • ว่าง ${q.available}/${q.max} คัน) 🏍️`
+            : `มอเตอร์ไซค์ถูกเช่าครบ ${q.max}/${q.max} คันแล้ว 🏍️`;
+      }
+    }
     dom.interactLabel.textContent = labelText;
     dom.interactWrap.classList.remove('hidden');
   } else {
@@ -7289,11 +8984,25 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
   _remoteCrowdList.length = 0;
   for (const [id, p] of state.players) {
     if (id === state.selfId) continue;
-    p.currentPos.lerp(p.targetPos, Math.min(1, dt * 12));
-    let diff = p.targetRotY - p.currentRotY;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    p.currentRotY += diff * Math.min(1, dt * 12);
+    if (p.ferrisSeat && ferrisWheelState) {
+      p.currentRotY = getFerrisSeatWorldPos(
+        ferrisWheelState,
+        p.ferrisSeat.cabin,
+        p.ferrisSeat.seat,
+        p.currentPos
+      );
+      p.targetPos.copy(p.currentPos);
+      p.targetRotY = p.currentRotY;
+      p.isMoving = false;
+      p.isRunning = false;
+      if (p.setSeated) p.setSeated(true);
+    } else {
+      p.currentPos.lerp(p.targetPos, Math.min(1, dt * 12));
+      let diff = p.targetRotY - p.currentRotY;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      p.currentRotY += diff * Math.min(1, dt * 12);
+    }
     p.group.position.copy(p.currentPos);
     p.group.rotation.y = p.currentRotY;
 
@@ -7335,7 +9044,7 @@ function updatePlayersAnimationAndLabels(dt, elapsed) {
       p.chatExpireAt = 0;
     }
 
-    if (!visible) {
+    if (!visible || (isSelf && state.ferrisSeat && state.ferrisFirstPerson)) {
       if (p.labelEls.wrap._vis !== false) {
         p.labelEls.wrap.style.display = 'none';
         p.labelEls.wrap._vis = false;
@@ -7520,13 +9229,17 @@ function updateAtmosphere(dt, elapsed) {
   if (fairGamesState && runHalfRate) {
     updateFairGames(fairGamesState, elapsed);
   }
+  if (announcerDeskState) {
+    const announcerPlayer = state.announcerId ? state.players.get(state.announcerId) : null;
+    updateAnnouncerDesk(announcerDeskState, elapsed, Boolean(announcerPlayer?.isSpeaking));
+  }
   const selfForWorld = state.joined ? state.players.get(state.selfId) : null;
   if (pondCoinsState) {
     updatePondCoins(pondCoinsState, selfForWorld, elapsed, (coin) => {
       if (!socket) return;
       socket.emit('coin:collect', { coinId: coin.id }, (ack) => {
         if (ack?.ok) {
-          playCoinCollectSound(audioEngine.ctx, state.musicEnabled, ack.value);
+          playCoinCollectSound(audioEngine.ctx, isSfxActive(), ack.value);
           showToast(`💰 เก็บเหรียญในสระ +${ack.value} เหรียญ! (คงเหลือ ${ack.coins} 💰)`);
         }
       });
@@ -7535,7 +9248,7 @@ function updateAtmosphere(dt, elapsed) {
   if (hauntedForestState && selfForWorld) {
     updateHauntedForest(hauntedForestState, selfForWorld.currentPos, scene, dt, elapsed, {
       audioCtx: audioEngine.ctx,
-      soundEnabled: state.musicEnabled,
+      soundEnabled: isSfxActive(),
       lowGraphics: state.lowGraphics,
       onGhostAlert: (msg) => showToast(msg),
       onHorrorOverlay: (opacity, shake) => {
@@ -7582,6 +9295,10 @@ function animate() {
   fpsFrames++;
   const dt = Math.min(0.05, clock.getDelta());
   const elapsed = clock.elapsedTime;
+
+  if (ferrisWheelState) {
+    updateFerrisWheel(ferrisWheelState, Date.now() + state.serverClockOffset, elapsed);
+  }
 
   if (!state.joined) {
     // Gentle lobby preview turntable + front-focus during Wave + background world preview
@@ -7633,11 +9350,11 @@ function animate() {
     };
     window.__RENDER_STATS__ = stats;
     document.body.dataset.renderStats = JSON.stringify(stats);
-    if (dom.btnGfxToggle) {
-      const lbl = dom.btnGfxToggle.querySelector('.btn-label');
-      if (lbl) {
-        lbl.textContent = `${state.lowGraphics ? 'ประหยัด' : 'ปกติ'} (${measuredFps} FPS)`;
-      }
+    if (dom.settingsBtnLabel) {
+      dom.settingsBtnLabel.textContent = `ตั้งค่า (${measuredFps} FPS)`;
+    }
+    if (dom.settingsFpsReadout) {
+      dom.settingsFpsReadout.textContent = `ความลื่นไหลปัจจุบัน: ${measuredFps} FPS`;
     }
     // Auto-Adaptive Smoothness Guard: if real device sustains < 22 FPS for 4s in Normal mode, ease GPU load!
     if (state.joined && !state.lowGraphics && !autoPerfAdjusted && !document.hidden) {
@@ -7646,7 +9363,8 @@ function animate() {
         if (lowFpsStreak >= 4) {
           autoPerfAdjusted = true;
           applyGraphicsMode(true);
-          showToast('⚡ ปรับโหมดประหยัดกราฟิกอัตโนมัติเพื่อความลื่นไหล (กดปุ่มกราฟิกเพื่อสลับคืนได้)');
+          syncSettingsModalUI();
+          showToast('⚡ ปรับโหมดประหยัดกราฟิกอัตโนมัติเพื่อความลื่นไหล (เปิด/ปิดได้ในปุ่ม ⚙️ ตั้งค่า)');
         }
       } else {
         lowFpsStreak = 0;
@@ -7703,10 +9421,14 @@ async function bootstrap() {
     false,
     fairGamesState.boothBalloons.map((b) => b.mesh)
   );
+  ferrisWheelState = buildFerrisWheel(scene, addCollisionBox);
+  announcerDeskState = buildAnnouncerDesk(scene, addRotatedCollisionBox);
+  buildBouncyEntranceSign(scene);
   setupWorldCollisions();
 
-  // Apply graphics mode AFTER all procedural builders exist so mobile gets fast Lambert shaders on EVERYTHING!
+  // Apply graphics mode & saved mixer settings AFTER all procedural builders exist!
   applyGraphicsMode(state.lowGraphics);
+  syncSettingsModalUI();
 
   // Start rendering loop & pre-fetch music playlists before Lobby submit (for sync mobile audio unlock!)
   preloadAudioTrackLists();

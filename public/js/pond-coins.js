@@ -210,7 +210,7 @@ export function playCoinCollectSound(audioCtx, enabled, value = 1) {
       osc.frequency.setValueAtTime(freq, now + idx * 0.075);
       g.gain.setValueAtTime(0.14, now + idx * 0.075);
       g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.075 + 0.24);
-      osc.connect(g).connect(audioCtx.destination);
+      osc.connect(g).connect(audioCtx._sfxGain || audioCtx.destination);
       osc.start(now + idx * 0.075);
       osc.stop(now + idx * 0.075 + 0.26);
     });

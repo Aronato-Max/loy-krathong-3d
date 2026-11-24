@@ -188,63 +188,149 @@ export function buildFireworksStation(scene, addCollisionBox) {
 }
 
 // ----------------------------------------------------------------------------
-// Procedural Fireworks Audio (Launch Whoosh + Festive Burst Boom & Crackle)
+// Procedural Fireworks Audio (Loud Whistle Launch + Deep Punchy Boom & Crackle!)
 // ----------------------------------------------------------------------------
 
-function playLaunchSound(audioCtx, enabled) {
-  if (!enabled || !audioCtx || audioCtx.state !== 'running') return;
+let _fwCompressor = null;
+function getFireworkOutputNode(audioCtx) {
+  if (_fwCompressor && _fwCompressor.context === audioCtx) {
+    return _fwCompressor;
+  }
   try {
-    const now = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(320, now);
-    osc.frequency.exponentialRampToValueAtTime(1180, now + 0.55);
-    g.gain.setValueAtTime(0.001, now);
-    g.gain.linearRampToValueAtTime(0.07, now + 0.08);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.62);
-    osc.connect(g).connect(audioCtx.destination);
-    osc.start(now);
-    osc.stop(now + 0.65);
-  } catch {}
+    const comp = audioCtx.createDynamicsCompressor();
+    comp.threshold.setValueAtTime(-10, audioCtx.currentTime);
+    comp.knee.setValueAtTime(12, audioCtx.currentTime);
+    comp.ratio.setValueAtTime(4, audioCtx.currentTime);
+    comp.attack.setValueAtTime(0.003, audioCtx.currentTime);
+    comp.release.setValueAtTime(0.18, audioCtx.currentTime);
+    comp.connect(audioCtx._sfxGain || audioCtx.destination);
+    _fwCompressor = comp;
+    return comp;
+  } catch {
+    return audioCtx._sfxGain || audioCtx.destination;
+  }
 }
 
-function playBurstSound(audioCtx, enabled) {
-  if (!enabled || !audioCtx || audioCtx.state !== 'running') return;
+function playLaunchSound(audioCtx, enabled) {
+  if (!enabled || !audioCtx) return;
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+  if (audioCtx.state !== 'running') return;
   try {
+    const out = getFireworkOutputNode(audioCtx);
     const now = audioCtx.currentTime;
-    // Deep warm boom thump
-    const boom = audioCtx.createOscillator();
-    const bg = audioCtx.createGain();
-    boom.type = 'sine';
-    boom.frequency.setValueAtTime(125, now);
-    boom.frequency.exponentialRampToValueAtTime(34, now + 0.34);
-    bg.gain.setValueAtTime(0.28, now);
-    bg.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
-    boom.connect(bg).connect(audioCtx.destination);
-    boom.start(now);
-    boom.stop(now + 0.45);
 
-    // Filtered noise crackle sparkle
+    // 1) Bright rising firework whistle
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(420, now);
+    osc.frequency.exponentialRampToValueAtTime(1620, now + 0.62);
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.44, now + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.68);
+    osc.connect(g).connect(out);
+    osc.start(now);
+    osc.stop(now + 0.7);
+
+    // 2) Rocket propellant whoosh hiss
     const dur = 0.55;
     const len = Math.floor(audioCtx.sampleRate * dur);
     const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < len; i++) {
-      const env = Math.pow(1 - i / len, 1.8);
-      data[i] = (Math.random() * 2 - 1) * env * (Math.random() > 0.72 ? 1.0 : 0.35);
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.2);
     }
     const noise = audioCtx.createBufferSource();
     noise.buffer = buf;
-    const filter = audioCtx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(1850, now);
-    filter.Q.value = 0.8;
+    const bp = audioCtx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(2200, now);
+    bp.Q.value = 0.9;
     const ng = audioCtx.createGain();
-    ng.gain.setValueAtTime(0.22, now);
+    ng.gain.setValueAtTime(0.34, now);
     ng.gain.exponentialRampToValueAtTime(0.001, now + dur);
-    noise.connect(filter).connect(ng).connect(audioCtx.destination);
+    noise.connect(bp).connect(ng).connect(out);
     noise.start(now);
+  } catch {}
+}
+
+function playBurstSound(audioCtx, enabled) {
+  if (!enabled || !audioCtx) return;
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+  if (audioCtx.state !== 'running') return;
+  try {
+    const out = getFireworkOutputNode(audioCtx);
+    const now = audioCtx.currentTime;
+
+    // 1) Chest-punching mid-bass cannon thump (220 -> 48 Hz: loud on both phones & PC speakers!)
+    const boom = audioCtx.createOscillator();
+    const bg = audioCtx.createGain();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(220, now);
+    boom.frequency.exponentialRampToValueAtTime(48, now + 0.46);
+    bg.gain.setValueAtTime(0.95, now);
+    bg.gain.exponentialRampToValueAtTime(0.001, now + 0.54);
+    boom.connect(bg).connect(out);
+    boom.start(now);
+    boom.stop(now + 0.56);
+
+    // 2) Sharp upper-bass transient punch (triangle 150 -> 58 Hz)
+    const punch = audioCtx.createOscillator();
+    const pg = audioCtx.createGain();
+    punch.type = 'triangle';
+    punch.frequency.setValueAtTime(155, now);
+    punch.frequency.exponentialRampToValueAtTime(55, now + 0.24);
+    pg.gain.setValueAtTime(0.68, now);
+    pg.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    punch.connect(pg).connect(out);
+    punch.start(now);
+    punch.stop(now + 0.3);
+
+    // 3) Deep outdoor acoustic shockwave blast (lowpass noise 1100 -> 180 Hz)
+    const blastDur = 0.68;
+    const blastLen = Math.floor(audioCtx.sampleRate * blastDur);
+    const blastBuf = audioCtx.createBuffer(1, blastLen, audioCtx.sampleRate);
+    const blastData = blastBuf.getChannelData(0);
+    for (let i = 0; i < blastLen; i++) {
+      blastData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / blastLen, 1.45);
+    }
+    const blastSrc = audioCtx.createBufferSource();
+    blastSrc.buffer = blastBuf;
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1150, now);
+    lp.frequency.exponentialRampToValueAtTime(175, now + blastDur);
+    const blastGain = audioCtx.createGain();
+    blastGain.gain.setValueAtTime(0.92, now);
+    blastGain.gain.exponentialRampToValueAtTime(0.001, now + blastDur);
+    blastSrc.connect(lp).connect(blastGain).connect(out);
+    blastSrc.start(now);
+
+    // 4) Multi-pop glittering sky crackle tail (0.09s .. 0.52s)
+    const crackleDur = 0.72;
+    const crackleLen = Math.floor(audioCtx.sampleRate * crackleDur);
+    const crackleBuf = audioCtx.createBuffer(1, crackleLen, audioCtx.sampleRate);
+    const cData = crackleBuf.getChannelData(0);
+    for (let i = 0; i < crackleLen; i++) {
+      const env = Math.pow(1 - i / crackleLen, 1.35);
+      const pop = Math.random() > 0.84 ? 1.0 : 0.22;
+      cData[i] = (Math.random() * 2 - 1) * env * pop;
+    }
+    const crackleSrc = audioCtx.createBufferSource();
+    crackleSrc.buffer = crackleBuf;
+    const hp = audioCtx.createBiquadFilter();
+    hp.type = 'bandpass';
+    hp.frequency.setValueAtTime(2450, now + 0.06);
+    hp.Q.value = 0.75;
+    const cg = audioCtx.createGain();
+    cg.gain.setValueAtTime(0.58, now + 0.06);
+    cg.gain.exponentialRampToValueAtTime(0.001, now + 0.06 + crackleDur);
+    crackleSrc.connect(hp).connect(cg).connect(out);
+    crackleSrc.start(now + 0.06);
   } catch {}
 }
 

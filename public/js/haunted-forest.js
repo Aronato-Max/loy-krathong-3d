@@ -282,7 +282,7 @@ function playSpookyAmbientSound(audioCtx, enabled) {
     g.gain.linearRampToValueAtTime(0.11, now + 0.45);
     g.gain.exponentialRampToValueAtTime(0.001, now + 2.1);
 
-    osc.connect(g).connect(audioCtx.destination);
+    osc.connect(g).connect(audioCtx._sfxGain || audioCtx.destination);
     osc.start(now);
     lfo.start(now);
     osc.stop(now + 2.2);
@@ -302,7 +302,7 @@ function playHeartbeatSound(audioCtx, enabled, intensity = 0.6) {
       osc.frequency.exponentialRampToValueAtTime(30, now + offset + 0.12);
       g.gain.setValueAtTime(0.22 * intensity, now + offset);
       g.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.15);
-      osc.connect(g).connect(audioCtx.destination);
+      osc.connect(g).connect(audioCtx._sfxGain || audioCtx.destination);
       osc.start(now + offset);
       osc.stop(now + offset + 0.16);
     });
@@ -322,7 +322,7 @@ function playJumpscareShriek(audioCtx, enabled) {
       osc.frequency.exponentialRampToValueAtTime(f * 0.62, now + 0.58);
       g.gain.setValueAtTime(0.14, now);
       g.gain.exponentialRampToValueAtTime(0.001, now + 0.62);
-      osc.connect(g).connect(audioCtx.destination);
+      osc.connect(g).connect(audioCtx._sfxGain || audioCtx.destination);
       osc.start(now);
       osc.stop(now + 0.65);
     });
@@ -342,7 +342,7 @@ function playJumpscareShriek(audioCtx, enabled) {
     const ng = audioCtx.createGain();
     ng.gain.setValueAtTime(0.24, now);
     ng.gain.exponentialRampToValueAtTime(0.001, now + dur);
-    noise.connect(hp).connect(ng).connect(audioCtx.destination);
+    noise.connect(hp).connect(ng).connect(audioCtx._sfxGain || audioCtx.destination);
     noise.start(now);
   } catch {}
 }

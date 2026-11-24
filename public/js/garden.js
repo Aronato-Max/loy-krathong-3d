@@ -14,10 +14,9 @@ export const GARDEN_LAYOUT = {
     { x: 22.5, z: 45.5, scale: 0.96, rotY: 4.1, garden: 'SE' },
     { x: 47.5, z: 11.5, scale: 1.0, rotY: 5.2, garden: 'SE' },
 
-    // Garden B: Southwest & Mid-West (สวนโคมไฟหลังตลาด)
+    // Garden B: Southwest & Mid-West (สวนโคมไฟหลังตลาด — เคลียร์ลานกลางให้ชิงช้าสวรรค์ 🎡)
     { x: -32.0, z: 43.0, scale: 1.08, rotY: 0.9, garden: 'SW' },
-    { x: -33.0, z: 24.5, scale: 1.04, rotY: 2.2, garden: 'SW' },
-    { x: -19.0, z: 19.0, scale: 1.1, rotY: 3.6, garden: 'SW' },
+    { x: -34.5, z: 26.5, scale: 1.04, rotY: 2.2, garden: 'SW' },
     { x: -35.5, z: 11.5, scale: 0.96, rotY: 5.0, garden: 'SW' },
 
     // Garden C: Northeast (สวนร่มรื่นข้างอุโบสถ-ริมสระน้ำ)
@@ -29,8 +28,8 @@ export const GARDEN_LAYOUT = {
 
   // Medium ornamental temple trees with warm ground uplights
   mediumTrees: [
-    // Garden A (SE)
-    { x: 21.5, z: 24.5, scale: 0.95, rotY: 0.6 },
+    // Garden A (SE — เคลียร์พื้นที่ให้บ้านลมยักษ์เลโก้ที่ X:10..22, Z:17..24)
+    { x: 22.8, z: 29.0, scale: 0.95, rotY: 0.6 },
     { x: 37.5, z: 25.0, scale: 1.02, rotY: 1.5 },
     { x: 22.0, z: 34.5, scale: 0.92, rotY: 2.4 },
     { x: 36.5, z: 48.0, scale: 1.05, rotY: 3.1 },
@@ -39,17 +38,17 @@ export const GARDEN_LAYOUT = {
     { x: 42.5, z: 17.0, scale: 0.9, rotY: 1.1 },
     { x: 53.0, z: 18.0, scale: 0.96, rotY: 2.9 },
     { x: 11.5, z: 36.0, scale: 0.88, rotY: 0.3 },
-    { x: 11.5, z: 26.5, scale: 0.88, rotY: 3.7 },
+    { x: 11.5, z: 29.2, scale: 0.88, rotY: 3.7 },
 
     // Garden B (SW & Mid-West)
     { x: -38.0, z: 49.0, scale: 0.96, rotY: 0.8 },
     { x: -26.5, z: 50.0, scale: 0.92, rotY: 1.9 },
     { x: -38.5, z: 34.5, scale: 1.0, rotY: 2.7 },
     { x: -26.0, z: 33.0, scale: 0.94, rotY: 4.0 },
-    { x: -12.5, z: 26.5, scale: 0.95, rotY: 4.9 },
-    { x: -26.5, z: 12.5, scale: 0.98, rotY: 0.5 },
+    { x: -12.5, z: 28.5, scale: 0.95, rotY: 4.9 },
+    { x: -29.5, z: 12.0, scale: 0.98, rotY: 0.5 },
     { x: -12.0, z: 11.5, scale: 0.92, rotY: 2.1 },
-    { x: -22.5, z: 27.5, scale: 0.9, rotY: 3.4 },
+    { x: -19.5, z: 32.5, scale: 0.9, rotY: 3.4 },
     { x: -38.5, z: 18.5, scale: 0.96, rotY: 5.5 },
 
     // Garden C (NE — ข้างอุโบสถ-ริมสระน้ำ)
@@ -103,7 +102,7 @@ export const GARDEN_LAYOUT = {
     { x: 44.2, z: 27.6, rotY: Math.PI * 0.82 },
     // Garden B (SW & Mid-West)
     { x: -29.2, z: 40.6, rotY: -Math.PI * 0.28 },
-    { x: -16.6, z: 21.8, rotY: Math.PI * 0.75 }
+    { x: -16.2, z: 28.5, rotY: Math.PI * 0.85 }
   ],
 
   // Low shrubs + marigold flower accents
@@ -142,9 +141,7 @@ export const GARDEN_LAYOUT = {
     { x: -33.6, z: 41.6, scale: 1.0, flowers: true },
     { x: -30.5, z: 44.6, scale: 0.88, flowers: true },
     { x: -34.6, z: 23.2, scale: 1.0, flowers: true },
-    { x: -31.4, z: 26.0, scale: 0.85, flowers: false },
-    { x: -20.6, z: 17.6, scale: 1.05, flowers: true },
-    { x: -17.4, z: 17.5, scale: 0.88, flowers: true },
+    { x: -32.4, z: 27.5, scale: 0.85, flowers: false },
     { x: -37.0, z: 10.2, scale: 0.95, flowers: true },
     { x: -39.5, z: 47.0, scale: 1.15, flowers: false },
     { x: -39.5, z: 39.0, scale: 1.1, flowers: true },

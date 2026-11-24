@@ -4,9 +4,11 @@ const path = require('path');
 const fs = require('fs');
 const compression = require('compression');
 const { Server } = require('socket.io');
+const { containsProfanity } = require('./profanity');
 
 const PORT = process.env.PORT || 3000;
 const REGISTRATIONS_PATH = path.join(__dirname, 'registrations.json');
+const PROFILES_PATH = path.join(__dirname, 'profiles.json');
 
 const app = express();
 const server = http.createServer(app);
@@ -106,6 +108,81 @@ function saveRegistration(entry) {
   return writeQueue;
 }
 
+// Persistent Character Profiles & Unique Nickname Registry (normName -> { nickname, clientToken, avatar, coins, updatedAt })
+const profilesByNormName = new Map();
+try {
+  if (fs.existsSync(PROFILES_PATH)) {
+    const rawProfiles = fs.readFileSync(PROFILES_PATH, 'utf8').trim();
+    if (rawProfiles) {
+      const parsedProfiles = JSON.parse(rawProfiles);
+      if (Array.isArray(parsedProfiles)) {
+        for (const item of parsedProfiles) {
+          if (item && typeof item.normName === 'string' && item.nickname) {
+            profilesByNormName.set(item.normName, item);
+          }
+        }
+      }
+    }
+  } else {
+    fs.writeFileSync(PROFILES_PATH, '[]', 'utf8');
+  }
+} catch (err) {
+  console.error('Failed to read profiles.json, starting fresh:', err.message);
+}
+
+let profilesSaveTimer = null;
+let profilesWriteQueue = Promise.resolve();
+function scheduleSaveProfiles() {
+  if (profilesSaveTimer) return;
+  profilesSaveTimer = setTimeout(() => {
+    profilesSaveTimer = null;
+    // Cap at 5,000 most recently active profiles
+    if (profilesByNormName.size > 5000) {
+      const sorted = Array.from(profilesByNormName.entries()).sort(
+        (a, b) => (a[1].updatedAt || 0) - (b[1].updatedAt || 0)
+      );
+      const excess = sorted.length - 5000;
+      for (let i = 0; i < excess; i++) {
+        profilesByNormName.delete(sorted[i][0]);
+      }
+    }
+    const payload = JSON.stringify(Array.from(profilesByNormName.values()), null, 2);
+    profilesWriteQueue = profilesWriteQueue
+      .then(() => fs.promises.writeFile(PROFILES_PATH, payload, 'utf8'))
+      .catch((err) => console.error('Error writing profiles.json:', err));
+  }, 800);
+}
+
+function normalizeNickname(nick) {
+  return String(nick || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function sanitizeClientToken(raw) {
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  return /^[\w-]{8,64}$/.test(trimmed) ? trimmed : '';
+}
+
+function syncPlayerProfile(player) {
+  if (!player || !player.normName || !player.clientToken) return;
+  const existing = profilesByNormName.get(player.normName);
+  if (existing && existing.clientToken && existing.clientToken !== player.clientToken) return;
+  profilesByNormName.set(player.normName, {
+    normName: player.normName,
+    nickname: player.nickname,
+    clientToken: player.clientToken,
+    avatar: player.avatar,
+    coins: Math.max(0, Math.floor(Number(player.coins) || 0)),
+    hearts: Math.max(0, Math.floor(Number(player.hearts) || 0)),
+    starterV32: true,
+    updatedAt: Date.now()
+  });
+  scheduleSaveProfiles();
+}
+
 function sanitizeText(value, maxLen = 120) {
   if (typeof value !== 'string') return '';
   return value
@@ -155,13 +232,26 @@ const VALID_LANTERN_COLORS = new Set(['gold', 'pink', 'white']);
 const VALID_EMOTES = new Set(['wave', 'ramwong', 'cheer', 'wai']);
 const VALID_CONTEST_ENTRIES = new Set(['banana', 'lotus', 'bread']);
 const BALLOON_GAME_PRICE = 5;
+const FERRIS_PRICE = 5;
+const BOUNCY_PRICE = 5;
+const BOUNCY_DURATION_MS = 150000; // 2 minutes 30 seconds per ticket
+const MOTO_RENT_PRICE = 5;
+const MOTO_MODEL_COUNT = 5;
+const MAX_ACTIVE_MOTOS_PER_ROOM = 10;
+const FERRIS_CABIN_COUNT = 8;
+const FERRIS_SEATS_PER_CABIN = 2;
+const FERRIS_OMEGA = 0.165;
 const FESTIVAL_TIPS = [
   '💡 รู้ไหม? คลิกที่ตัวเพื่อนหรือป้ายชื่อเพื่อน เพื่อส่งหัวใจ ❤️ หรือมอบเหรียญ 💰 ให้กันได้นะ!',
   '💡 เหรียญหมดไม่ต้องห่วง! เดินลงไปว่ายน้ำเก็บเหรียญทองในสระลอยกระทงได้เลย 🏊',
+  '💡 ใหม่! แวะเช่ามอเตอร์ไซค์ 🏍️ ที่ลานจอดหน้าประตูวัด (5 เหรียญ) ขี่แว้นบีบแตรเที่ยวงานได้ทั่วลาน!',
+  '💡 แวะขึ้นชิงช้าสวรรค์ไฟนีออน 🎡 (สวนฝั่งซ้ายหลังตลาด) นั่งคู่กับเพื่อนชมวิวมุมสูงและฟังเพลงคอนเสิร์ตทั่วงาน!',
   '💡 แวะไปเล่นซุ้มปาโป่งชิงรางวัล 🎈 (ฝั่งซ้ายถนนทางเข้า) ปาแตก 7 ลูกรับ +15 เหรียญ และตุ๊กตาหมีงานวัด 🧸!',
   '💡 ลองขึ้นบันไดหลังเวทีคอนเสิร์ตไปเต้นรำวง 💃 หรือโยกเชียร์ 🕺 กับเพื่อน ๆ หน้าเวทีได้เลย!',
   '💡 แวะโหวตกระทงสวยประจำงานได้ที่แท่นพรมแดงประกวดกระทง 🪷 และกดดูอันดับขวัญใจงานวัดได้ที่ปุ่ม 👑 อันดับ!',
   '💡 เสี่ยงเซียมซีที่ศาลาพระพุทธรูป 🎋 ถ้าได้ดวง "ดีมาก" รับโบนัสพิเศษ +5 เหรียญทันที!',
+  '💡 แวะนั่งโต๊ะมัคนายก 🎙️ (ข้างลานโคมลอย-ท่าน้ำ) พูดออกไมค์หรือพิมพ์ประกาศกระจายเสียงทั่วฝั่งขวาของงานได้ฟรี!',
+  '💡 ใหม่! แวะกระโดดเล่นบ้านลมยักษ์เลโก้ 🏰 (ลานหญ้าหน้าเวทีประกวดกระทง • ค่าเข้า 5 เหรียญ รอบละ 2:30 นาที มีบันไดขึ้นสไลเดอร์คู่!)',
   '💡 คำเตือน! อย่าเผลอเดินลึกเข้าไปในป่าช้าหลังโบสถ์ยามวิกาล 👻 (ถ้าเจอดีให้รีบวิ่งเข้าเขตพระอุโบสถ!)'
 ];
 const FIREWORK_STYLE_NAMES = {
@@ -171,7 +261,7 @@ const FIREWORK_STYLE_NAMES = {
   finale: '🎆 พลุชุดใหญ่ 5 นัด'
 };
 const FIREWORK_PRICES = { gold: 10, rainbow: 10, heart: 10, finale: 15 };
-const STARTING_COINS = 20;
+const STARTING_COINS = 50;
 const PROP_PRICE = 5;
 const LANTERN_PRICE = 5;
 const MAX_POND_COINS = 16;
@@ -260,6 +350,8 @@ for (const def of ROOM_DEFS) {
     floatedKrathongs: [],
     releasedLanterns: [],
     pondCoins: initialCoins,
+    parkedMotos: new Map(),
+    announcerId: null,
     contestVotes: new Map(),
     tipIndex: 0,
     recentChats: [],
@@ -278,6 +370,20 @@ function getContestSummary(room) {
   }
   const total = counts.banana + counts.lotus + counts.bread;
   return { counts, total };
+}
+
+function getRoomMotoQuota(room) {
+  let riding = 0;
+  for (const [, p] of room.players) {
+    if (p.ridingMoto) riding++;
+  }
+  const parked = room.parkedMotos ? room.parkedMotos.size : 0;
+  const used = riding + parked;
+  return {
+    used,
+    max: MAX_ACTIVE_MOTOS_PER_ROOM,
+    available: Math.max(0, MAX_ACTIVE_MOTOS_PER_ROOM - used)
+  };
 }
 
 function getRoomLeaderboard(room) {
@@ -443,19 +549,140 @@ setInterval(() => {
 // SOCKET.IO MULTIPLAYER HANDLERS
 // ============================================================================
 
+const ANNOUNCER_SEAT = { x: 32.72, y: 0, z: -1.94, rotY: -2.18 };
+const ANNOUNCER_STAND = { x: 31.35, y: 0, z: -2.75 };
+
+function clearRoomAnnouncerIfSocket(room, socketId) {
+  if (!room || room.announcerId !== socketId) return;
+  room.announcerId = null;
+  const p = room.players.get(socketId);
+  if (p) {
+    p.isAnnouncer = false;
+  }
+  io.to(room.id).emit('announcer:updated', {
+    announcerId: null,
+    announcerName: null
+  });
+}
+
+function cleanupPlayerFromRoom(room, socketId, notifyRoom = true) {
+  if (!room || !room.players.has(socketId)) return;
+  const p = room.players.get(socketId);
+  syncPlayerProfile(p);
+  clearRoomAnnouncerIfSocket(room, socketId);
+  const hadMoto = Boolean(p?.ridingMoto);
+  room.players.delete(socketId);
+  room.dirtyMoves.delete(socketId);
+
+  const parkedId = `pmoto-${socketId}`;
+  const hadParked = room.parkedMotos.has(parkedId);
+  if (hadParked) {
+    room.parkedMotos.delete(parkedId);
+    if (notifyRoom) io.to(room.id).emit('moto:unparked', { motoId: parkedId });
+  }
+  if (notifyRoom && (hadMoto || hadParked)) {
+    io.to(room.id).emit('moto:quotaUpdated', getRoomMotoQuota(room));
+  }
+  if (notifyRoom) {
+    io.to(room.id).emit('player:left', { id: socketId });
+  }
+}
+
 io.on('connection', (socket) => {
   socket.on('player:join', (payload, ack) => {
-    // Clean up if re-joining on an existing socket
+    const rawNick = sanitizeText(payload?.nickname, 20);
+    if (!rawNick) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'INVALID_NAME', message: 'กรุณาตั้งชื่อตัวละครก่อนเข้างานครับ' });
+      }
+      return;
+    }
+    if (containsProfanity(rawNick)) {
+      if (typeof ack === 'function') {
+        ack({
+          ok: false,
+          error: 'PROFANITY_NAME',
+          message: '🚫 ชื่อนี้มีคำไม่สุภาพ กรุณาตั้งชื่อใหม่ที่สุภาพนะครับ'
+        });
+      }
+      return;
+    }
+
+    const normName = normalizeNickname(rawNick);
+    const clientToken = sanitizeClientToken(payload?.clientToken) || `tok-${socket.id}`;
+
+    // 1) Unique Nickname Check across all online rooms (allow seamless reclaim ONLY with matching clientToken!)
+    for (const r of rooms.values()) {
+      for (const [otherId, otherP] of r.players) {
+        if (otherId === socket.id) continue;
+        if (otherP.normName === normName) {
+          if (clientToken && otherP.clientToken && otherP.clientToken === clientToken) {
+            cleanupPlayerFromRoom(r, otherId, true);
+            const staleSock = io.sockets.sockets.get(otherId);
+            if (staleSock) {
+              staleSock.leave(r.id);
+              staleSock.disconnect(true);
+            }
+          } else {
+            if (typeof ack === 'function') {
+              ack({
+                ok: false,
+                error: 'NAME_TAKEN',
+                message: `⚠️ ชื่อ "${rawNick}" มีผู้เล่นใช้งานอยู่แล้ว กรุณาตั้งชื่ออื่นที่ไม่ซ้ำครับ`
+              });
+            }
+            return;
+          }
+        }
+      }
+    }
+
+    // 2) Check persistent registered profiles so nobody else can take a saved character's name!
+    const existingProfile = profilesByNormName.get(normName);
+    if (existingProfile && existingProfile.clientToken && existingProfile.clientToken !== clientToken) {
+      if (typeof ack === 'function') {
+        ack({
+          ok: false,
+          error: 'NAME_TAKEN',
+          message: `⚠️ ชื่อ "${existingProfile.nickname}" ถูกลงทะเบียนไว้แล้ว กรุณาตั้งชื่อใหม่ที่ไม่ซ้ำครับ`
+        });
+      }
+      return;
+    }
+
+    // Clean up if re-joining (switching room or character) on an existing socket
     const prevRoom = getRoomForSocket(socket);
     if (prevRoom && prevRoom.players.has(socket.id)) {
-      prevRoom.players.delete(socket.id);
-      prevRoom.dirtyMoves.delete(socket.id);
+      cleanupPlayerFromRoom(prevRoom, socket.id, true);
       socket.leave(prevRoom.id);
-      socket.to(prevRoom.id).emit('player:left', { id: socket.id });
+    }
+
+    // If this returning player renamed their character, migrate coins/hearts & free old name!
+    let restoredCoins = STARTING_COINS;
+    let restoredHearts = 0;
+    if (existingProfile && existingProfile.clientToken === clientToken) {
+      if (Number.isFinite(existingProfile.coins)) {
+        restoredCoins = existingProfile.starterV32
+          ? Math.max(0, existingProfile.coins)
+          : Math.max(STARTING_COINS, existingProfile.coins);
+      }
+      if (Number.isFinite(existingProfile.hearts)) restoredHearts = Math.max(0, existingProfile.hearts);
+    } else {
+      for (const [oldKey, prof] of Array.from(profilesByNormName.entries())) {
+        if (prof.clientToken === clientToken && oldKey !== normName) {
+          if (Number.isFinite(prof.coins)) {
+            restoredCoins = prof.starterV32
+              ? Math.max(0, prof.coins)
+              : Math.max(STARTING_COINS, prof.coins);
+          }
+          if (Number.isFinite(prof.hearts)) restoredHearts = Math.max(0, prof.hearts);
+          profilesByNormName.delete(oldKey);
+        }
+      }
     }
 
     const room = chooseRoom(payload?.roomId);
-    const nickname = sanitizeText(payload?.nickname, 24) || `นักท่องเที่ยว-${socket.id.slice(0, 4)}`;
+    const nickname = rawNick;
     const avatar = sanitizeAvatar(payload?.avatar);
     const lowGraphics = Boolean(payload?.lowGraphics);
 
@@ -474,6 +701,8 @@ io.on('connection', (socket) => {
     const playerState = {
       id: socket.id,
       nickname,
+      normName,
+      clientToken,
       avatar,
       x: Number(offsetX.toFixed(2)),
       y: 0,
@@ -486,8 +715,14 @@ io.on('connection', (socket) => {
       heldProp: null,
       propBites: 3,
       seatedChairId: null,
-      coins: STARTING_COINS,
-      hearts: 0,
+      isAnnouncer: false,
+      lastPaTextAt: 0,
+      ferrisSeat: null,
+      bouncyEndsAt: 0,
+      ridingMoto: null,
+      lastMotoHonkAt: 0,
+      coins: restoredCoins,
+      hearts: restoredHearts,
       headAccessory: null,
       activeEmote: null,
       balloonSession: null,
@@ -495,6 +730,8 @@ io.on('connection', (socket) => {
       lastEsiimsiBonusAt: 0,
       isSpeaking: false
     };
+
+    syncPlayerProfile(playerState);
 
     socket.data.roomId = room.id;
     socket.join(room.id);
@@ -507,7 +744,8 @@ io.on('connection', (socket) => {
         roomId: room.id,
         roomName: room.name,
         roomMax: MAX_PLAYERS_PER_ROOM,
-        coins: playerState.coins
+        coins: playerState.coins,
+        hearts: playerState.hearts
       });
     }
 
@@ -517,16 +755,29 @@ io.on('connection', (socket) => {
     if (!room.stageTrack && stageTracks.length > 0) {
       room.stageTrack = createInitialStageTrack();
     }
+    const activeAnnouncer = room.announcerId ? room.players.get(room.announcerId) : null;
+    if (room.announcerId && !activeAnnouncer) {
+      room.announcerId = null;
+    }
+
     socket.emit('world:init', {
       selfId: socket.id,
+      serverNow: Date.now(),
       roomId: room.id,
       roomName: room.name,
       roomMax: MAX_PLAYERS_PER_ROOM,
       coins: playerState.coins,
-      players: Array.from(room.players.values()),
+      players: Array.from(room.players.values()).map((p) => ({
+        ...p,
+        clientToken: undefined
+      })),
       krathongs: room.floatedKrathongs,
       lanterns: room.releasedLanterns,
       pondCoins: room.pondCoins,
+      parkedMotos: Array.from(room.parkedMotos.values()),
+      motoQuota: getRoomMotoQuota(room),
+      announcerId: room.announcerId,
+      announcerName: activeAnnouncer ? activeAnnouncer.nickname : null,
       contestSummary: getContestSummary(room),
       recentChats: room.recentChats,
       stageTracks,
@@ -534,7 +785,7 @@ io.on('connection', (socket) => {
       festivalTracks
     });
 
-    socket.to(room.id).emit('player:joined', playerState);
+    socket.to(room.id).emit('player:joined', { ...playerState, clientToken: undefined });
 
     pushChat(room, {
       id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -552,7 +803,7 @@ io.on('connection', (socket) => {
     if (!player || !payload || typeof payload !== 'object') return;
 
     player.x = clampFinite(payload.x, -48, 60, player.x);
-    player.y = clampFinite(payload.y, -2, 10, 0);
+    player.y = clampFinite(payload.y, -2, 24, 0);
     player.z = clampFinite(payload.z, -64, 60.2, player.z);
     player.rotY = clampFinite(payload.rotY, -Math.PI * 4, Math.PI * 4, player.rotY);
     player.isMoving = Boolean(payload.isMoving);
@@ -561,6 +812,9 @@ io.on('connection', (socket) => {
     if (player.isMoving && player.seatedChairId) {
       player.seatedChairId = null;
       socket.to(room.id).emit('player:sat', { id: socket.id, chairId: null });
+    }
+    if (player.isMoving && room.announcerId === socket.id) {
+      clearRoomAnnouncerIfSocket(room, socket.id);
     }
 
     // Queue for next 10 Hz batched broadcast instead of immediate O(N^2) emit
@@ -656,6 +910,7 @@ io.on('connection', (socket) => {
         }
       }
       player.seatedChairId = chairId;
+      clearRoomAnnouncerIfSocket(room, socket.id);
       player.x = clampFinite(payload?.x, -40, 0, player.x);
       player.z = clampFinite(payload?.z, -40, -15, player.z);
       player.rotY = clampFinite(payload?.rotY, -Math.PI * 4, Math.PI * 4, Math.PI);
@@ -690,6 +945,12 @@ io.on('connection', (socket) => {
 
     const requestedType = player.heldKrathong;
     const wish = sanitizeText(payload?.wish, 120) || 'ขอให้มีความสุข สุขภาพแข็งแรง 🌕';
+    if (containsProfanity(wish)) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'PROFANITY_TEXT', message: '🚫 คำอธิษฐานมีคำไม่สุภาพ กรุณาพิมพ์ด้วยถ้อยคำสุภาพนะครับ' });
+      }
+      return;
+    }
 
     const launchX = clampFinite(payload?.x, 37.8, 42.5, 38.4 + Math.random() * 1.4);
     const launchZ = clampFinite(payload?.z, -24, 1, -12 + (Math.random() - 0.5) * 4);
@@ -759,6 +1020,15 @@ io.on('connection', (socket) => {
 
     const color = VALID_LANTERN_COLORS.has(payload?.color) ? payload.color : 'gold';
     const wish = sanitizeText(payload?.wish, 120) || 'ขอให้ชีวิตสว่างไสวดุจโคมลอย 🏮';
+    if (containsProfanity(wish)) {
+      // Refund lantern price if blocked by profanity filter
+      player.coins = (player.coins || 0) + LANTERN_PRICE;
+      socket.emit('coins:updated', { coins: player.coins });
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'PROFANITY_TEXT', message: '🚫 คำอธิษฐานมีคำไม่สุภาพ กรุณาพิมพ์ด้วยถ้อยคำสุภาพนะครับ' });
+      }
+      return;
+    }
 
     const launchX = clampFinite(payload?.x, 16.0, 27.0, 21.5 + (Math.random() - 0.5) * 2.6);
     const launchZ = clampFinite(payload?.z, -11.0, -1.0, -6.0 + (Math.random() - 0.5) * 2.6);
@@ -854,6 +1124,13 @@ io.on('connection', (socket) => {
 
     const text = sanitizeText(payload?.text, 160);
     if (!text) return;
+    if (containsProfanity(text)) {
+      socket.emit('chat:rejected', {
+        reason: 'PROFANITY_TEXT',
+        message: '🚫 ข้อความมีคำไม่สุภาพ ไม่สามารถส่งลงแชตงานวัดได้ครับ'
+      });
+      return;
+    }
 
     pushChat(room, {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -871,7 +1148,7 @@ io.on('connection', (socket) => {
     if (!player) return;
 
     const detail = sanitizeText(payload?.text, 160);
-    if (!detail) return;
+    if (!detail || containsProfanity(detail)) return;
 
     pushChat(room, {
       id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -926,6 +1203,7 @@ io.on('connection', (socket) => {
 
     player.coins = (player.coins || 0) - price;
     player.lastFireworkAt = now;
+    syncPlayerProfile(player);
     socket.emit('coins:updated', { coins: player.coins });
 
     const fwEvent = {
@@ -961,6 +1239,7 @@ io.on('connection', (socket) => {
     }
     const [coin] = room.pondCoins.splice(idx, 1);
     player.coins = (player.coins || 0) + coin.value;
+    syncPlayerProfile(player);
     socket.emit('coins:updated', { coins: player.coins });
     io.to(room.id).emit('coin:collected', {
       coinId: coin.id,
@@ -1039,6 +1318,8 @@ io.on('connection', (socket) => {
 
     sender.coins = (sender.coins || 0) - amount;
     target.coins = (target.coins || 0) + amount;
+    syncPlayerProfile(sender);
+    syncPlayerProfile(target);
 
     socket.emit('coins:updated', { coins: sender.coins });
     io.to(target.id).emit('coins:updated', { coins: target.coins });
@@ -1152,6 +1433,475 @@ io.on('connection', (socket) => {
     if (typeof ack === 'function') ack({ ok: true, ...getRoomLeaderboard(room) });
   });
 
+  // Giant Ferris Wheel Boarding (5 coins, 8 cabins x 2 seats = 16 riders max, pairs friends together!)
+  socket.on('ferris:board', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+    if (player.ferrisSeat) {
+      if (typeof ack === 'function') ack({ ok: true, ferrisSeat: player.ferrisSeat, coins: player.coins });
+      return;
+    }
+    if ((player.coins || 0) < FERRIS_PRICE) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'NOT_ENOUGH_COINS', required: FERRIS_PRICE, coins: player.coins || 0 });
+      }
+      return;
+    }
+
+    // Track occupied seats across all 8 cabins
+    const occupied = new Set();
+    for (const [, p] of room.players) {
+      if (p.ferrisSeat) {
+        occupied.add(`${p.ferrisSeat.cabin}:${p.ferrisSeat.seat}`);
+      }
+    }
+
+    // Rank cabins by how close they currently are to the bottom boarding deck (sin(theta) closest to -1)
+    const angle = ((Date.now() * 0.001 * FERRIS_OMEGA) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const cabinOrder = [];
+    for (let c = 0; c < FERRIS_CABIN_COUNT; c++) {
+      const theta = angle + (c / FERRIS_CABIN_COUNT) * Math.PI * 2 - Math.PI / 2;
+      cabinOrder.push({ cabin: c, heightFactor: Math.sin(theta) });
+    }
+    cabinOrder.sort((a, b) => a.heightFactor - b.heightFactor);
+
+    let chosen = null;
+    for (const item of cabinOrder) {
+      for (let s = 0; s < FERRIS_SEATS_PER_CABIN; s++) {
+        if (!occupied.has(`${item.cabin}:${s}`)) {
+          chosen = { cabin: item.cabin, seat: s };
+          break;
+        }
+      }
+      if (chosen) break;
+    }
+
+    if (!chosen) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'FULL' });
+      return;
+    }
+
+    player.coins = (player.coins || 0) - FERRIS_PRICE;
+    syncPlayerProfile(player);
+    clearRoomAnnouncerIfSocket(room, socket.id);
+    if (player.seatedChairId) {
+      player.seatedChairId = null;
+      io.to(room.id).emit('player:sat', { id: socket.id, chairId: null });
+    }
+    if (player.ridingMoto) {
+      const parked = {
+        id: `pmoto-${socket.id}`,
+        ownerId: socket.id,
+        ownerName: player.nickname,
+        modelIdx: player.ridingMoto.modelIdx || 0,
+        x: Number(player.x.toFixed(2)),
+        z: Number(player.z.toFixed(2)),
+        rotY: Number((player.rotY || 0).toFixed(2)),
+        parkedAt: Date.now()
+      };
+      room.parkedMotos.set(parked.id, parked);
+      io.to(room.id).emit('moto:parked', parked);
+      player.ridingMoto = null;
+      io.to(room.id).emit('player:motoUpdated', { id: socket.id, ridingMoto: null });
+    }
+    player.ferrisSeat = chosen;
+    player.isMoving = false;
+    player.isRunning = false;
+
+    socket.emit('coins:updated', { coins: player.coins });
+    io.to(room.id).emit('player:ferrisUpdated', {
+      id: socket.id,
+      ferrisSeat: chosen
+    });
+    if (typeof ack === 'function') {
+      ack({ ok: true, ferrisSeat: chosen, coins: player.coins });
+    }
+  });
+
+  socket.on('ferris:leave', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+    player.ferrisSeat = null;
+    player.x = -22.2 + (Math.random() - 0.5) * 1.6;
+    player.y = 0;
+    player.z = 24.0;
+    io.to(room.id).emit('player:ferrisUpdated', {
+      id: socket.id,
+      ferrisSeat: null,
+      x: player.x,
+      y: 0,
+      z: player.z
+    });
+    if (typeof ack === 'function') ack({ ok: true });
+  });
+
+  // Drivable Temple Fair Motorcycle Rental (5 coins, max 10 active/parked bikes per room!)
+  socket.on('moto:rent', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+    if (player.ridingMoto) {
+      if (typeof ack === 'function') ack({ ok: true, ridingMoto: player.ridingMoto, coins: player.coins });
+      return;
+    }
+
+    const oldParkedId = `pmoto-${socket.id}`;
+    const hasOwnParked = room.parkedMotos.has(oldParkedId);
+    const quota = getRoomMotoQuota(room);
+    if (!hasOwnParked && quota.used >= MAX_ACTIVE_MOTOS_PER_ROOM) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'MOTO_LIMIT_REACHED', max: MAX_ACTIVE_MOTOS_PER_ROOM, used: quota.used });
+      }
+      return;
+    }
+
+    if ((player.coins || 0) < MOTO_RENT_PRICE) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'NOT_ENOUGH_COINS', required: MOTO_RENT_PRICE, coins: player.coins || 0 });
+      }
+      return;
+    }
+
+    player.coins = (player.coins || 0) - MOTO_RENT_PRICE;
+    syncPlayerProfile(player);
+    clearRoomAnnouncerIfSocket(room, socket.id);
+    if (player.seatedChairId) {
+      player.seatedChairId = null;
+      io.to(room.id).emit('player:sat', { id: socket.id, chairId: null });
+    }
+    if (player.ferrisSeat) {
+      player.ferrisSeat = null;
+      io.to(room.id).emit('player:ferrisUpdated', { id: socket.id, ferrisSeat: null });
+    }
+
+    const modelIdx = Math.floor(Math.random() * MOTO_MODEL_COUNT);
+    player.ridingMoto = { modelIdx };
+
+    // Replace this player's own older parked bike if they rented a new one
+    if (hasOwnParked) {
+      room.parkedMotos.delete(oldParkedId);
+      io.to(room.id).emit('moto:unparked', { motoId: oldParkedId });
+    }
+
+    socket.emit('coins:updated', { coins: player.coins });
+    io.to(room.id).emit('player:motoUpdated', {
+      id: socket.id,
+      ridingMoto: player.ridingMoto
+    });
+    io.to(room.id).emit('moto:quotaUpdated', getRoomMotoQuota(room));
+    if (typeof ack === 'function') {
+      ack({ ok: true, ridingMoto: player.ridingMoto, coins: player.coins });
+    }
+  });
+
+  socket.on('moto:dismount', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player || !player.ridingMoto) {
+      if (typeof ack === 'function') ack({ ok: false });
+      return;
+    }
+
+    // Leave the motorcycle parked right where the player dismounted (stays parked indefinitely!)
+    const parked = {
+      id: `pmoto-${socket.id}`,
+      ownerId: socket.id,
+      ownerName: player.nickname,
+      modelIdx: player.ridingMoto.modelIdx || 0,
+      x: Number(player.x.toFixed(2)),
+      z: Number(player.z.toFixed(2)),
+      rotY: Number((player.rotY || 0).toFixed(2)),
+      parkedAt: Date.now()
+    };
+    room.parkedMotos.set(parked.id, parked);
+
+    player.ridingMoto = null;
+    io.to(room.id).emit('moto:parked', parked);
+    io.to(room.id).emit('player:motoUpdated', {
+      id: socket.id,
+      ridingMoto: null
+    });
+    io.to(room.id).emit('moto:quotaUpdated', getRoomMotoQuota(room));
+    if (typeof ack === 'function') ack({ ok: true, parked });
+  });
+
+  // Voluntary return to the parking lot (frees up a slot in the 10-bike room quota!)
+  socket.on('moto:return', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+    const parkedId = `pmoto-${socket.id}`;
+    if (room.parkedMotos.has(parkedId)) {
+      room.parkedMotos.delete(parkedId);
+      io.to(room.id).emit('moto:unparked', { motoId: parkedId });
+    }
+    if (player.ridingMoto) {
+      player.ridingMoto = null;
+      io.to(room.id).emit('player:motoUpdated', { id: socket.id, ridingMoto: null });
+    }
+    io.to(room.id).emit('moto:quotaUpdated', getRoomMotoQuota(room));
+    if (typeof ack === 'function') ack({ ok: true });
+  });
+
+  socket.on('moto:remount', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    const motoId = typeof payload?.motoId === 'string' ? payload.motoId : `pmoto-${socket.id}`;
+    const parked = room?.parkedMotos.get(motoId);
+    if (!player || !parked || parked.ownerId !== socket.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'NOT_FOUND' });
+      return;
+    }
+    room.parkedMotos.delete(motoId);
+    if (player.seatedChairId) {
+      player.seatedChairId = null;
+      io.to(room.id).emit('player:sat', { id: socket.id, chairId: null });
+    }
+    player.ridingMoto = { modelIdx: parked.modelIdx };
+    player.x = parked.x;
+    player.z = parked.z;
+    player.rotY = parked.rotY;
+
+    io.to(room.id).emit('moto:unparked', { motoId });
+    io.to(room.id).emit('player:motoUpdated', {
+      id: socket.id,
+      ridingMoto: player.ridingMoto
+    });
+    if (typeof ack === 'function') ack({ ok: true, ridingMoto: player.ridingMoto, x: parked.x, z: parked.z, rotY: parked.rotY });
+  });
+
+  socket.on('moto:honk', () => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player || !player.ridingMoto) return;
+    const now = Date.now();
+    if (player.lastMotoHonkAt && now - player.lastMotoHonkAt < 1100) return;
+    player.lastMotoHonkAt = now;
+    io.to(room.id).emit('player:motoHonked', {
+      id: socket.id,
+      nickname: player.nickname,
+      x: player.x,
+      z: player.z
+    });
+  });
+
+  // Temple Announcer Desk (โต๊ะมัคนายกประกาศงานวัด — Free 0 coins, No time limit, 1 seat/room!)
+  socket.on('announcer:sit', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+
+    if (room.announcerId && room.announcerId !== socket.id) {
+      const occ = room.players.get(room.announcerId);
+      if (occ) {
+        if (typeof ack === 'function') {
+          ack({ ok: false, error: 'OCCUPIED', currentName: occ.nickname });
+        }
+        return;
+      }
+      room.announcerId = null;
+    }
+
+    if (player.seatedChairId) {
+      player.seatedChairId = null;
+      io.to(room.id).emit('player:sat', { id: socket.id, chairId: null });
+    }
+    if (player.ferrisSeat) {
+      player.ferrisSeat = null;
+      io.to(room.id).emit('player:ferrisUpdated', { id: socket.id, ferrisSeat: null });
+    }
+    if (player.ridingMoto) {
+      const parked = {
+        id: `pmoto-${socket.id}`,
+        ownerId: socket.id,
+        ownerName: player.nickname,
+        modelIdx: player.ridingMoto.modelIdx || 0,
+        x: Number(player.x.toFixed(2)),
+        z: Number(player.z.toFixed(2)),
+        rotY: Number((player.rotY || 0).toFixed(2)),
+        parkedAt: Date.now()
+      };
+      room.parkedMotos.set(parked.id, parked);
+      io.to(room.id).emit('moto:parked', parked);
+      player.ridingMoto = null;
+      io.to(room.id).emit('player:motoUpdated', { id: socket.id, ridingMoto: null });
+    }
+
+    room.announcerId = socket.id;
+    player.isAnnouncer = true;
+    player.x = ANNOUNCER_SEAT.x;
+    player.y = 0;
+    player.z = ANNOUNCER_SEAT.z;
+    player.rotY = ANNOUNCER_SEAT.rotY;
+    player.isMoving = false;
+    player.isRunning = false;
+
+    io.to(room.id).emit('announcer:updated', {
+      announcerId: socket.id,
+      announcerName: player.nickname,
+      x: player.x,
+      z: player.z,
+      rotY: player.rotY
+    });
+
+    if (typeof ack === 'function') {
+      ack({
+        ok: true,
+        announcerId: socket.id,
+        announcerName: player.nickname,
+        x: player.x,
+        z: player.z,
+        rotY: player.rotY
+      });
+    }
+  });
+
+  socket.on('announcer:leave', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+    clearRoomAnnouncerIfSocket(room, socket.id);
+    player.x = ANNOUNCER_STAND.x;
+    player.y = 0;
+    player.z = ANNOUNCER_STAND.z;
+    if (typeof ack === 'function') {
+      ack({ ok: true, x: player.x, z: player.z });
+    }
+  });
+
+  socket.on('announcer:announceText', (payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player || room.announcerId !== socket.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'NOT_ANNOUNCER' });
+      return;
+    }
+    const text = sanitizeText(payload?.text, 140);
+    if (!text) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'EMPTY' });
+      return;
+    }
+    const now = Date.now();
+    if (player.lastPaTextAt && now - player.lastPaTextAt < 2200) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'COOLDOWN' });
+      return;
+    }
+    player.lastPaTextAt = now;
+
+    const banner = {
+      id: `pa-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      senderId: socket.id,
+      senderName: player.nickname,
+      text,
+      timestamp: now
+    };
+    io.to(room.id).emit('announcer:banner', banner);
+
+    pushChat(room, {
+      id: `pachat-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      senderId: 'system',
+      senderName: 'โต๊ะมัคนายก',
+      text: `📢 เสียงตามสายจากมัคนายก ${player.nickname}: "${text}"`,
+      type: 'system',
+      timestamp: now
+    });
+
+    if (typeof ack === 'function') ack({ ok: true, banner });
+  });
+
+  socket.on('announcer:voicePcm', (payload) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player || room.announcerId !== socket.id || !payload?.pcm) return;
+    const byteLen = payload.pcm.byteLength || payload.pcm.length || 0;
+    if (byteLen <= 0 || byteLen > 16384) return;
+    socket.to(room.id).emit('announcer:voicePcm', {
+      id: socket.id,
+      nickname: player.nickname,
+      sr: Number(payload.sr) || 12000,
+      pcm: payload.pcm
+    });
+  });
+
+  // Playable Lego Bouncy Castle Ticket (5 coins, 2 minutes 30 seconds -> auto-exit!)
+  socket.on('bouncy:enter', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+
+    const now = Date.now();
+    if (player.bouncyEndsAt && player.bouncyEndsAt > now + 2000) {
+      if (typeof ack === 'function') {
+        ack({
+          ok: true,
+          bouncyEndsAt: player.bouncyEndsAt,
+          durationMs: player.bouncyEndsAt - now,
+          coins: player.coins
+        });
+      }
+      return;
+    }
+
+    if ((player.coins || 0) < BOUNCY_PRICE) {
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: 'NOT_ENOUGH_COINS', required: BOUNCY_PRICE, coins: player.coins || 0 });
+      }
+      return;
+    }
+
+    player.coins = (player.coins || 0) - BOUNCY_PRICE;
+    syncPlayerProfile(player);
+    clearRoomAnnouncerIfSocket(room, socket.id);
+    if (player.seatedChairId) {
+      player.seatedChairId = null;
+      io.to(room.id).emit('player:sat', { id: socket.id, chairId: null });
+    }
+    if (player.ferrisSeat) {
+      player.ferrisSeat = null;
+      io.to(room.id).emit('player:ferrisUpdated', { id: socket.id, ferrisSeat: null });
+    }
+    if (player.ridingMoto) {
+      const parked = {
+        id: `pmoto-${socket.id}`,
+        ownerId: socket.id,
+        ownerName: player.nickname,
+        modelIdx: player.ridingMoto.modelIdx || 0,
+        x: Number(player.x.toFixed(2)),
+        z: Number(player.z.toFixed(2)),
+        rotY: Number((player.rotY || 0).toFixed(2)),
+        parkedAt: now
+      };
+      room.parkedMotos.set(parked.id, parked);
+      io.to(room.id).emit('moto:parked', parked);
+      player.ridingMoto = null;
+      io.to(room.id).emit('player:motoUpdated', { id: socket.id, ridingMoto: null });
+    }
+
+    player.bouncyEndsAt = now + BOUNCY_DURATION_MS;
+    socket.emit('coins:updated', { coins: player.coins });
+    if (typeof ack === 'function') {
+      ack({
+        ok: true,
+        bouncyEndsAt: player.bouncyEndsAt,
+        durationMs: BOUNCY_DURATION_MS,
+        coins: player.coins
+      });
+    }
+  });
+
+  socket.on('bouncy:leave', (_payload, ack) => {
+    const room = getRoomForSocket(socket);
+    const player = room?.players.get(socket.id);
+    if (!player) return;
+    player.bouncyEndsAt = 0;
+    player.x = 16.0;
+    player.y = 0;
+    player.z = 15.2;
+    if (typeof ack === 'function') ack({ ok: true, x: player.x, z: player.z });
+  });
+
   // Proximity-scoped WebRTC Signaling (only within same room)
   socket.on('webrtc:offer', (payload) => {
     const room = getRoomForSocket(socket);
@@ -1186,15 +1936,14 @@ io.on('connection', (socket) => {
     const player = room.players.get(socket.id);
     if (!player) return;
 
-    room.players.delete(socket.id);
-    room.dirtyMoves.delete(socket.id);
-    socket.to(room.id).emit('player:left', { id: socket.id });
+    const nick = player.nickname;
+    cleanupPlayerFromRoom(room, socket.id, true);
 
     pushChat(room, {
       id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       senderId: 'system',
       senderName: 'ระบบงานวัด',
-      text: `${player.nickname} ออกจากงานแล้ว`,
+      text: `${nick} ออกจากงานแล้ว`,
       type: 'system',
       timestamp: Date.now()
     });

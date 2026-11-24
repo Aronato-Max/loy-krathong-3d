@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=23">
+  <link rel="stylesheet" href="/css/style.css?v=33">
   <script type="importmap">
     {
       "imports": {
@@ -110,9 +110,14 @@
 
         <!-- Compact Registration Form -->
         <form id="lobby-form" class="custom-column">
+          <div id="lobby-saved-badge" class="lobby-saved-badge hidden" aria-live="polite">
+            💾 โหลดตัวละครและชื่อเดิมของคุณให้อัตโนมัติแล้ว
+          </div>
+
           <div class="form-group">
-            <label for="input-nickname">ชื่อเล่น (แสดงบนหัวตัวละคร)</label>
+            <label for="input-nickname">ชื่อเล่นตัวละคร (ห้ามซ้ำกับผู้อื่น • จดจำให้อัตโนมัติ)</label>
             <input id="input-nickname" name="nickname" type="text" maxlength="20" placeholder="เช่น น้องใบตอง, พี่ขุนแผน" required autocomplete="nickname">
+            <div id="lobby-error-msg" class="lobby-error-msg hidden" role="alert"></div>
           </div>
 
           <div class="form-group">
@@ -157,25 +162,42 @@
         <span class="divider">•</span>
         <span id="hud-online-count">ออนไลน์ 1 คน</span>
         <span class="divider">•</span>
-        <span id="hud-coins" class="hud-coins-badge" title="เหรียญงานวัด (ลงว่ายน้ำเก็บในสระได้!)">💰 20</span>
+        <span id="hud-coins" class="hud-coins-badge" title="เหรียญงานวัด (ลงว่ายน้ำเก็บในสระได้!)">💰 50</span>
+      </div>
+      <div class="hud-pill hunger-status-pill" id="hud-hunger-pill" title="หลอดความอิ่ม — ซื้อลูกชิ้นปิ้ง สายไหม หรือน้ำดื่มจากตลาดงานวัดมากินเติมพลังได้ (กด F)">
+        <span id="hud-hunger-icon" aria-hidden="true">🍖</span>
+        <span class="hunger-label">อิ่ม</span>
+        <div class="hunger-track" role="progressbar" aria-label="ระดับความอิ่ม" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" id="hud-hunger-bar">
+          <div id="hud-hunger-fill" class="hunger-fill" style="width: 100%"></div>
+        </div>
+        <strong id="hud-hunger-pct" class="hunger-pct">100%</strong>
       </div>
       <div class="hud-pill krathong-status-pill is-empty" id="hud-held-krathong">
         <span>🪷 ยังไม่ได้ถือกระทง</span>
       </div>
       <div class="hud-toolbar">
-        <button type="button" id="btn-music-toggle" class="hud-btn" aria-pressed="true" aria-label="เปิดหรือปิดเสียงเพลงคอนเสิร์ต" title="เปิด/ปิดเสียงเพลงคอนเสิร์ต">
-          <span aria-hidden="true">🎵</span> <span class="btn-label">เพลง: เปิด</span>
-        </button>
-        <button type="button" id="btn-gfx-toggle" class="hud-btn" aria-pressed="false" aria-label="สลับโหมดประหยัดกราฟิก" title="สลับโหมดประหยัดกราฟิก">
-          <span aria-hidden="true">⚙️</span> <span class="btn-label">กราฟิก: ปกติ</span>
-        </button>
-        <button type="button" id="btn-mic-setup" class="hud-btn" aria-label="ตั้งค่าไมโครโฟน" title="สถานะไมโครโฟน">
-          <span aria-hidden="true">🎤</span> <span id="mic-state-text" class="btn-label">ไมค์: พร้อม</span>
+        <button type="button" id="btn-settings" class="hud-btn hud-btn-settings" aria-label="เปิดหน้าต่างตั้งค่าทั้งหมด" title="ตั้งค่าเสียง กราฟิก มุมกล้อง และตัวละคร">
+          <span aria-hidden="true">⚙️</span> <span id="settings-btn-label" class="btn-label">ตั้งค่า</span>
         </button>
         <button type="button" id="btn-leaderboard" class="hud-btn hud-btn-gold" aria-label="ป้ายอันดับขวัญใจงานวัด" title="ป้ายอันดับขวัญใจงานวัด (Top 3 ❤️ / 💰)">
           <span aria-hidden="true">👑</span> <span class="btn-label">อันดับ</span>
         </button>
       </div>
+    </div>
+
+    <!-- Top-Center PA Horn Broadcast Banner (Visible on Right Side of the Fair!) -->
+    <div id="pa-announce-banner" class="pa-announce-banner hidden" role="status" aria-live="polite">
+      <span class="pa-horn-icon" aria-hidden="true">📢</span>
+      <div class="pa-banner-content">
+        <strong id="pa-banner-speaker">โต๊ะมัคนายกประกาศงานวัด</strong>
+        <span id="pa-banner-text">กำลังกระจายเสียงออกลำโพงฝั่งขวาของงาน...</span>
+      </div>
+    </div>
+
+    <!-- Top-Center Bouncy Castle Countdown Timer Pill -->
+    <div id="bouncy-timer-pill" class="bouncy-timer-pill hidden" role="status" aria-live="polite">
+      <span aria-hidden="true">🏰</span>
+      <strong id="bouncy-timer-text">บ้านลม: เหลือ 2:30</strong>
     </div>
 
     <!-- Top-Right: Fullscreen + Collapsible Minimap -->
@@ -220,6 +242,10 @@
         <span class="key-cap">E</span>
         <span id="interact-label">โต้ตอบ</span>
       </button>
+      <button type="button" id="btn-ferris-cam" class="btn-interact btn-ferris-cam hidden" title="สลับมุมมองในกระเช้า / มุมนอก (กด C)">
+        <span class="key-cap">C</span>
+        <span id="ferris-cam-label">มุมนอก 🎥</span>
+      </button>
     </div>
 
     <!-- Bottom-Left: Mobile Joystick / Desktop Hint -->
@@ -227,7 +253,7 @@
       <div class="desktop-controls-hint" id="desktop-hint">
         <span><b>WASD / ลูกศร</b> เดิน</span>
         <span><b>Shift</b> วิ่ง</span>
-        <span><b>ลากเมาส์</b> หมุนกล้อง</span>
+        <span><b>คลิกลาก</b> เงย-ก้ม</span>
         <span><b>Scroll</b> ซูม</span>
         <span><b>E</b> โต้ตอบ</span>
         <span><b>F</b> กิน/ดื่ม</span>
@@ -253,6 +279,22 @@
         <button type="button" class="emote-pill" data-emote="wai">🙏 ไหว้สวย <em>4</em></button>
       </div>
       <div class="voice-action-row">
+        <button type="button" id="btn-bouncy-jump" class="eat-btn bouncy-jump-btn hidden" aria-label="กระโดดเด้งดึ๋งในบ้านลม" title="กระโดดในบ้านลม (Space)">
+          <span aria-hidden="true">🤸</span>
+          <span class="eat-text">กระโดด (Space)</span>
+        </button>
+        <button type="button" id="btn-bouncy-exit" class="eat-btn bouncy-exit-btn hidden" aria-label="ออกจากบ้านลม" title="ออกจากบ้านลม (E)">
+          <span aria-hidden="true">🚪</span>
+          <span class="eat-text">ออกบ้านลม</span>
+        </button>
+        <button type="button" id="btn-moto-horn" class="eat-btn moto-action-btn hidden" aria-label="บีบแตรมอเตอร์ไซค์" title="บีบแตรมอเตอร์ไซค์ (B)">
+          <span aria-hidden="true">📯</span>
+          <span class="eat-text">แตร (B)</span>
+        </button>
+        <button type="button" id="btn-moto-dismount" class="eat-btn moto-dismount-btn hidden" aria-label="ลงจากมอเตอร์ไซค์" title="ลงจากมอเตอร์ไซค์ (G)">
+          <span aria-hidden="true">🅿️</span>
+          <span class="eat-text">ลงรถ (G)</span>
+        </button>
         <button type="button" id="btn-eat" class="eat-btn hidden" aria-label="กินของกินหรือดื่มน้ำในมือ" title="กิน/ดื่มของในมือ (F)">
           <span id="eat-icon" aria-hidden="true">😋</span>
           <span id="eat-text" class="eat-text">กิน (F)</span>
@@ -518,7 +560,7 @@
       <div class="social-coin-section">
         <div class="social-coin-head">
           <span>💰 มอบเหรียญให้เพื่อน</span>
-          <span id="social-my-coins" class="social-my-coins">คงเหลือ: 💰 20 เหรียญ</span>
+          <span id="social-my-coins" class="social-my-coins">คงเหลือ: 💰 50 เหรียญ</span>
         </div>
         <div class="social-coin-presets">
           <button type="button" class="coin-preset-btn" data-gift-coins="5">+5 💰</button>
@@ -584,6 +626,104 @@
         </section>
       </div>
       <p class="lb-tip">💡 คลิกที่เพื่อนเพื่อส่งหัวใจ ❤️ หรือลงว่ายน้ำเก็บเหรียญในสระลอยกระทงเพื่อไต่อันดับ!</p>
+    </div>
+  </dialog>
+
+  <!-- 4l. Unified Settings Modal (Audio Mixers + Camera + Graphics + Profile/Room Switcher) -->
+  <dialog id="dialog-settings" class="festive-dialog settings-dialog" closedby="any" aria-labelledby="title-settings">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <h2 id="title-settings">⚙️ ตั้งค่างานลอยกระทง</h2>
+        <button type="button" class="dialog-close" data-close-dialog="dialog-settings" aria-label="ปิดหน้าต่าง">✕</button>
+      </div>
+
+      <!-- Section 1: Audio Mixer (Mute/Unmute + - / Slider / +) -->
+      <section class="settings-section">
+        <h3 class="settings-sec-title">🔊 ตั้งค่าเสียงแยกหมวด</h3>
+
+        <!-- 1. Music Volume -->
+        <div class="vol-control-card">
+          <div class="vol-row-top">
+            <span class="vol-label">🎵 เสียงเพลงงานวัด &amp; เวทีคอนเสิร์ต</span>
+            <button type="button" id="btn-mute-music" class="vol-mute-pill is-on" aria-pressed="true">เปิดเสียง</button>
+          </div>
+          <div class="vol-slider-row">
+            <button type="button" class="vol-step-btn" data-vol-target="music" data-vol-delta="-10" aria-label="ลดเสียงเพลง">−</button>
+            <input type="range" id="slider-vol-music" min="0" max="100" step="5" value="85" aria-label="ระดับเสียงเพลง">
+            <button type="button" class="vol-step-btn" data-vol-target="music" data-vol-delta="10" aria-label="เพิ่มเสียงเพลง">+</button>
+            <span id="val-vol-music" class="vol-pct">85%</span>
+          </div>
+        </div>
+
+        <!-- 2. SFX Volume -->
+        <div class="vol-control-card">
+          <div class="vol-row-top">
+            <span class="vol-label">🎆 เสียงเอฟเฟกต์ (พลุ / แตรรถ / เหรียญ / เกม)</span>
+            <button type="button" id="btn-mute-sfx" class="vol-mute-pill is-on" aria-pressed="true">เปิดเสียง</button>
+          </div>
+          <div class="vol-slider-row">
+            <button type="button" class="vol-step-btn" data-vol-target="sfx" data-vol-delta="-10" aria-label="ลดเสียงเอฟเฟกต์">−</button>
+            <input type="range" id="slider-vol-sfx" min="0" max="100" step="5" value="85" aria-label="ระดับเสียงเอฟเฟกต์">
+            <button type="button" class="vol-step-btn" data-vol-target="sfx" data-vol-delta="10" aria-label="เพิ่มเสียงเอฟเฟกต์">+</button>
+            <span id="val-vol-sfx" class="vol-pct">85%</span>
+          </div>
+        </div>
+
+        <!-- 3. Voice & PA Announcer Volume -->
+        <div class="vol-control-card">
+          <div class="vol-row-top">
+            <span class="vol-label">🎙️ เสียงพูดเพื่อน &amp; ลำโพงมัคนายก</span>
+            <button type="button" id="btn-mute-voice" class="vol-mute-pill is-on" aria-pressed="true">เปิดเสียง</button>
+          </div>
+          <div class="vol-slider-row">
+            <button type="button" class="vol-step-btn" data-vol-target="voice" data-vol-delta="-10" aria-label="ลดเสียงพูดคุย">−</button>
+            <input type="range" id="slider-vol-voice" min="0" max="100" step="5" value="100" aria-label="ระดับเสียงพูดคุยและมัคนายก">
+            <button type="button" class="vol-step-btn" data-vol-target="voice" data-vol-delta="10" aria-label="เพิ่มเสียงพูดคุย">+</button>
+            <span id="val-vol-voice" class="vol-pct">100%</span>
+          </div>
+          <div class="mic-setup-inline">
+            <span id="mic-state-text" class="mic-inline-status">🎤 สถานะไมค์: พร้อมใช้งาน</span>
+            <button type="button" id="btn-mic-setup" class="btn-secondary mic-inline-btn">เชื่อมต่อไมค์</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Graphics, Camera & HUD -->
+      <section class="settings-section">
+        <h3 class="settings-sec-title">🎮 ภาพ มุมมอง และการแสดงผล</h3>
+
+        <div class="settings-toggle-row">
+          <div>
+            <strong>⚡ โหมดกราฟิก</strong>
+            <small id="settings-fps-readout">ความลื่นไหลปัจจุบัน: -- FPS</small>
+          </div>
+          <button type="button" id="btn-gfx-toggle" class="settings-switch-btn" aria-pressed="false">ปกติ (ภาพสวย)</button>
+        </div>
+
+        <div class="settings-toggle-row">
+          <div>
+            <strong>🧭 กล้องตามหลังอัตโนมัติ</strong>
+            <small>หันกล้องตามเวลาเดินเลี้ยวหรือขี่มอเตอร์ไซค์</small>
+          </div>
+          <button type="button" id="btn-autofollow" class="settings-switch-btn is-on" aria-pressed="true">เปิดอยู่</button>
+        </div>
+
+        <div class="settings-toggle-row">
+          <div>
+            <strong>🏷️ ป้ายชื่อบนหัวผู้เล่น</strong>
+            <small>ซ่อนป้ายชื่อชั่วคราวหากต้องการชมวิวโล่ง ๆ</small>
+          </div>
+          <button type="button" id="btn-toggle-labels" class="settings-switch-btn is-on" aria-pressed="true">แสดงชื่อ</button>
+        </div>
+      </section>
+
+      <!-- Section 3: Profile & Room Switcher -->
+      <div class="settings-footer-actions">
+        <button type="button" id="btn-switch-character" class="btn-secondary settings-lobby-btn">
+          🔄 เปลี่ยนตัวละคร / เปลี่ยนชื่อ / ย้ายลานงาน
+        </button>
+        <button type="button" class="btn-primary" data-close-dialog="dialog-settings">บันทึกและปิด</button>
+      </div>
     </div>
   </dialog>
 
@@ -671,8 +811,8 @@
   <!-- Hidden DOM container for mobile-safe HTMLAudioElement playback (music + WebRTC voice) -->
   <div id="audio-elements-sink" class="sr-audio-sink" aria-hidden="true"></div>
 
-  <script src="/config.js?v=23"></script>
+  <script src="/config.js?v=33"></script>
   <script src="/vendor/socket.io.min.js"></script>
-  <script type="module" src="/js/app.js?v=23"></script>
+  <script type="module" src="/js/app.js?v=33"></script>
 </body>
 </html>

@@ -308,7 +308,7 @@ export function playDartPopSound(audioCtx, enabled) {
     osc.frequency.exponentialRampToValueAtTime(110, now + 0.075);
     g.gain.setValueAtTime(0.24, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
-    osc.connect(g).connect(audioCtx.destination);
+    osc.connect(g).connect(audioCtx._sfxGain || audioCtx.destination);
     osc.start(now);
     osc.stop(now + 0.09);
   } catch {}
@@ -328,7 +328,7 @@ export function playStarWinSound(audioCtx, enabled, isJackpot = false) {
       osc.frequency.setValueAtTime(f, now + i * 0.08);
       g.gain.setValueAtTime(0.14, now + i * 0.08);
       g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.28);
-      osc.connect(g).connect(audioCtx.destination);
+      osc.connect(g).connect(audioCtx._sfxGain || audioCtx.destination);
       osc.start(now + i * 0.08);
       osc.stop(now + i * 0.08 + 0.3);
     });
